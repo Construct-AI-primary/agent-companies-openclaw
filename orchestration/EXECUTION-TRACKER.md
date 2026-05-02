@@ -1,23 +1,43 @@
 # Execution Tracker
 
-**Status**: ⏳ Placeholder — pending OpenClaw investigation.
+**Status**: ✅ Active — Tracking PROCURE-TEST project execution.
 
 ## Purpose
 
-This document will track execution status for all 70 projects / 479 issues across the Construct AI agent ecosystem on OpenClaw.
+This document tracks execution status for projects across the Construct AI agent ecosystem on OpenClaw.
 
-## Expected Contents
+## Active Projects
 
-- Per-project execution status (backlog → in_progress → in_review → done)
-- Issue-level dependency tracking
-- Agent assignment and workload balancing
-- Blocker identification and escalation
-- Progress dashboards and reports
+| Project | Issues | Status | Phase | Gate Status |
+|---------|--------|--------|-------|-------------|
+| PROCURE-TEST | 16 | Ready for execution | Pre-execution | All gates unblocked |
 
-## Reference
+## Execution Model
 
-Source Paperclip version: `agent-companies-paperclip/docs-paperclip/disciplines/01900-procurement/projects/PROC-ORDER/orchestration/EXECUTION-TRACKER.md`
+### Issue Dispatch Flow
+1. Trigger document (`trigger/{project-code}-trigger.md`) defines dispatch sequence
+2. Issues are dispatched in dependency order per phase
+3. Each issue is assigned to its designated agent via `assignee` field
+4. Agent executes using assigned skills from `skills/` directory
+5. Results flow back through heartbeat loop
 
----
+### Dependency Resolution
+- Issues declare `depends_on` in frontmatter
+- Phases are sequential (Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5)
+- Within a phase, issues can run in parallel if no inter-dependencies
+- Blocked issues are tracked via `blocked_by` field
 
-*Fill this in when OpenClaw execution model is understood.*
+### Phase Gate Thresholds
+| Phase | Pass Rate | Critical Issues Allowed |
+|-------|-----------|------------------------|
+| 1 — Foundation | 100% | 0 |
+| 2 — State/Modals | >95% | 0 |
+| 3 — Integration | >90% | ≤1 |
+| 4 — Advanced | >85% | ≤2 |
+| 5 — Compliance | Go/no-go | N/A |
+
+## Related Documents
+
+- `orchestration/OVERVIEW.md` — Orchestration architecture
+- `orchestration/RISK-TRACKER.md` — Risk registry
+- `orchestration/LEARNING-INTEGRATION.md` — Learning and feedback loops

@@ -1,31 +1,62 @@
 # Orchestration Overview
 
-**Status**: ⏳ Placeholder — pending OpenClaw investigation.
+**Status**: ✅ Active — Updated with current OpenClaw patterns.
 
 ## Purpose
 
-This document will describe how the Construct AI agent ecosystem is orchestrated on OpenClaw, including multi-agent coordination, task dispatch, dependency resolution, and cross-company communication.
+This document describes how the Construct AI agent ecosystem is orchestrated on OpenClaw, including multi-agent coordination, task dispatch, dependency resolution, and cross-company communication.
 
-## Expected Contents
+## Architecture
 
-- OpenClaw architecture and key concepts (mapped from Paperclip equivalents)
-- Agent lifecycle — creation, registration, task assignment, decommissioning
-- Cross-company coordination patterns
-- Communication protocols (sync, async, escalation)
-- Quality gates and approval workflows
+### Repository Structure
+- **`agent-companies-openclaw/`** — Root repository containing:
+  - `agent-companies-core/` — Submodule with all agent definitions, skills, companies, projects, and domain knowledge
+  - `orchestration/` — Cross-project orchestration docs (this directory)
+  - `schema/` — SQLite database schemas
+  - `triggers/` — OpenClaw-native trigger definitions
+  - `adapters/` — Adapter configurations for AI coding assistants
+  - `migration/` — Paperclip → OpenClaw migration plans
 
-## Source Material
+### Agent Lifecycle
+1. **Creation** — Agent AGENTS.md created in `agent-companies-core/agents/{company}/agents/{slug}/`
+2. **Registration** — Agent slug registered in issue `assignee` field
+3. **Task Assignment** — Issue dispatched to agent via trigger document
+4. **Execution** — Agent performs work using assigned skills
+5. **Completion** — Results reported back through heartbeat loop
 
-The Paperclip version of this document lives at `agent-companies-paperclip/docs-paperclip/disciplines/01900-procurement/projects/PROC-ORDER/orchestration/OVERVIEW.md`. When OpenClaw details are known, this should be rewritten to reference OpenClaw primitives instead of PaperclipForge AI, LearningForge AI, etc.
+### Cross-Company Coordination
+- Agents report to company CEOs (e.g., `orion-domainforge-ceo`, `apex-qualityforge-ceo`)
+- Cross-company tasks use delegation with `assigneeAgentId` + `parentId` fields
+- Heartbeat loop polls activity logs every 15 minutes for stalled agents
+- Escalation flows upward through the agent hierarchy
 
-## Questions to Answer
+### Communication Patterns
+- **Synchronous**: Direct agent-to-agent via issue dependencies
+- **Asynchronous**: Heartbeat-based status polling
+- **Escalation**: Stalled agents → CEO → escalation path
 
-1. How does OpenClaw model companies, teams, and agents?
-2. What is the equivalent of Paperclip's "board" for issue tracking?
-3. How does OpenClaw handle cross-agent communication?
-4. What automation primitives does OpenClaw offer for triggers?
-5. How does OpenClaw handle agent API keys and authentication?
+### Quality Gates
+- Phase gates enforce pass rate thresholds (100% → 95% → 90% → 85%)
+- Each phase must pass before next phase begins
+- Final gate produces go/no-go recommendation
 
----
+## Key Concepts
 
-*Fill this in when OpenClaw documentation is available.*
+| Concept | Description |
+|---------|-------------|
+| **Agent** | AI entity with defined role, skills, and reporting structure |
+| **Company** | Organizational unit grouping related agents |
+| **Skill** | Capability that an agent can execute |
+| **Issue** | Task definition with assignee, dependencies, and phase |
+| **Trigger** | Event-based dispatch mechanism for project execution |
+| **Heartbeat** | 15-minute polling loop for agent status monitoring |
+| **Phase Gate** | Quality threshold that gates progression to next phase |
+
+## Related Documents
+
+- `orchestration/EXECUTION-TRACKER.md` — Per-project execution status
+- `orchestration/RISK-TRACKER.md` — Operational and technical risks
+- `orchestration/LEARNING-INTEGRATION.md` — Learning and feedback loops
+- `triggers/TRIGGER-README.md` — Trigger definitions
+- `agent-companies-core/agents/` — All agent definitions
+- `agent-companies-core/companies/` — All company definitions

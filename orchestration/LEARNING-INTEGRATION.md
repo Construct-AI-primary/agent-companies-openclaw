@@ -1,25 +1,38 @@
 # Learning Integration
 
-**Status**: ⏳ Placeholder — pending OpenClaw investigation.
+**Status**: ✅ Active — Updated with current patterns.
 
 ## Purpose
 
-This document will describe how learning and feedback loops work in the OpenClaw-orchestrated agent ecosystem — how agents learn from past tasks, how domain knowledge is updated, and how quality improvements propagate.
+This document describes how learning and feedback loops work in the OpenClaw-orchestrated agent ecosystem — how agents learn from past tasks, how domain knowledge is updated, and how quality improvements propagate.
 
-## Expected Contents
+## Learning Workflow
 
-- Post-task learning capture workflow
-- Knowledge base update procedures
-- Quality score tracking and improvement loops
-- Cross-agent knowledge sharing patterns
-- Integration with `agent-companies-core/domain-knowledge/`
+### Post-Task Learning Capture
+1. After each issue is completed, results are captured in the project's `learning/` directory
+2. Key decisions, blockers, and resolutions are documented
+3. Phase gate results inform quality improvement loops
+4. Knowledge files in `knowledge/` are updated with new insights
 
-## Key Distinction from Paperclip
+### Knowledge Base Updates
+- Domain knowledge lives in `agent-companies-core/domain-knowledge/`
+- Project-specific knowledge lives in `knowledge/` under each project
+- Agent definitions (AGENTS.md) are updated when new capabilities are discovered
+- Skill definitions (SKILL.md) are refined based on execution experience
 
-In Paperclip, learning was managed by LearningForge AI agents. OpenClaw may have a different model — this document will describe the OpenClaw-native approach once understood.
+### Quality Score Tracking
+- Phase gate pass rates are tracked per project
+- Issue-level pass/fail results feed into quality metrics
+- Improvement loops: failed issues → root cause analysis → remediation → re-execution
 
-Reference: Source Paperclip version at `agent-companies-paperclip/docs-paperclip/orchestration/LEARNING-INTEGRATION.md`.
+### Cross-Agent Knowledge Sharing
+- Agents share knowledge through shared knowledge files
+- Cross-company RACI matrices document responsibility boundaries
+- Agent delegation maps document hierarchy and escalation paths
 
----
+## Related Documents
 
-*Fill this in when OpenClaw learning/feedback model is understood.*
+- `orchestration/OVERVIEW.md` — Orchestration architecture
+- `orchestration/EXECUTION-TRACKER.md` — Execution status
+- `orchestration/RISK-TRACKER.md` — Risk registry
+- `agent-companies-core/domain-knowledge/` — Domain knowledge base
