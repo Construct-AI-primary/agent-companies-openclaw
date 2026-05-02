@@ -210,7 +210,24 @@ client.on(Events.MessageCreate, async (message) => {
     console.log(`📩 [${channelInfo.server}/#${channelInfo.name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
 
     // Acknowledge in the same channel
-    await message.reply(`📨 **${channelInfo.agent}** received your message for **${channelInfo.purpose}**. They will respond here when ready.`);
+    await message.reply(`📨 **${channelInfo.agent}** received your message for **${channelInfo.purpose}**. Processing...`);
+
+    // TEST: Simulate agent response for ELEC-TEST foundation channel
+    if (message.channelId === '1500118034470404136') {
+      // Simulate DevForge AI processing delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await message.channel.send(
+        `🤖 **DevForge AI** (ELEC-TEST-001) response:\n\n` +
+        `> "${message.content}"\n\n` +
+        `✅ **Analysis complete.** I've processed your request for the electrical engineering foundation test. ` +
+        `The test environment is configured and ready. Here's what I found:\n\n` +
+        `• **Status:** All systems nominal\n` +
+        `• **Test ID:** ELEC-TEST-001-${Date.now().toString(36)}\n` +
+        `• **Next steps:** Review the foundation parameters and proceed with validation\n\n` +
+        `*This is a simulated agent response for testing purposes.*`
+      );
+      return;
+    }
 
     // TODO: Forward to OpenClaw agent runtime
     // When the agent runtime is integrated, this is where we:
