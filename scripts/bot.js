@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Events, ChannelType, PermissionsBitField } = require('discord.js');
 require('dotenv').config();
 
 const client = new Client({
@@ -8,6 +8,30 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
+
+// ============================================================
+// CHANNEL TYPE INFERENCE
+// ============================================================
+function getChannelType(name) {
+  if (name === 'ai-work') return 'control';
+  if (name === 'project-log') return 'log';
+  if (name === 'project-ops') return 'ops';
+  if (name.startsWith('work-')) return 'work';
+  if (['deployments', 'monitoring', 'security', 'operations', 'agent-commands', 'voice-comm'].includes(name)) return 'system';
+  return 'issue'; // default: existing issue channels
+}
+
+function getReplyMode(type) {
+  switch (type) {
+    case 'control': return 'direct';
+    case 'log': return 'agent-write';
+    case 'ops': return 'direct';
+    case 'work': return 'direct';
+    case 'system': return 'agent-write';
+    case 'issue': return 'cross-ref';
+    default: return 'direct';
+  }
+}
 
 // ============================================================
 // CHANNEL REGISTRY — Maps channel IDs to their metadata
@@ -187,59 +211,84 @@ const CHANNEL_MAP = {
 };
 
 // ============================================================
+// HELPER: Get channel info with inferred type
+// ============================================================
+function getChannelInfo(channelId) {
+  const base = CHANNEL_MAP[channelId];
+  if (!base) return null;
+  const type = getChannelType(base.name);
+  return {
+    ...base,
+    type,
+    reply_mode: getReplyMode(type)
+  };
+}
+
+// ============================================================
+// HELPER: Find the #ai-work channel for a given server
+// ============================================================
+function findControlChannel(server) {
+  return Object.entries(CHANNEL_MAP).find(
+    ([id, info]) => info.server === server && getChannelType(info.name) === 'control'
+  );
+}
+
+// ============================================================
 // BOT READY
 // ============================================================
 client.once(Events.ClientReady, (c) => {
   console.log(`✅ OpenClaw Bot logged in as ${c.user.tag}`);
   const agentChannels = Object.values(CHANNEL_MAP).filter(c => c.agent !== null).length;
+  const byType = {};
+  Object.values(CHANNEL_MAP).forEach(ch => {
+    const t = getChannelType(ch.name);
+    byType[t] = (byType[t] || 0) + 1;
+  });
   console.log(`📋 ${Object.keys(CHANNEL_MAP).length} channels monitored (${agentChannels} with agent assignments)`);
+  console.log(`📊 Channel breakdown: ${Object.entries(byType).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
 });
 
 // ============================================================
-// MESSAGE HANDLER — Every channel is a conversation
+// MESSAGE HANDLER — Channel-type-aware dispatch
 // ============================================================
 client.on(Events.MessageCreate, async (message) => {
   // Ignore bot messages
   if (message.author.bot) return;
 
-  const channelInfo = CHANNEL_MAP[message.channelId];
+  const channelInfo = getChannelInfo(message.channelId);
+  if (!channelInfo) return;
 
-  // If this is a known agent channel, handle the message
-  if (channelInfo && channelInfo.agent) {
-    // Human posted in an agent's channel — forward to agent
-    console.log(`📩 [${channelInfo.server}/#${channelInfo.name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
+  const { type, reply_mode, agent, server, name, purpose } = channelInfo;
 
-    // Acknowledge in the same channel
-    await message.reply(`📨 **${channelInfo.agent}** received your message for **${channelInfo.purpose}**. Processing...`);
-
-    // TEST: Simulate agent response for ELEC-TEST foundation channel
-    if (message.channelId === '1500118034470404136') {
-      // Simulate DevForge AI processing delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      await message.channel.send(
-        `🤖 **DevForge AI** (ELEC-TEST-001) response:\n\n` +
-        `> "${message.content}"\n\n` +
-        `✅ **Analysis complete.** I've processed your request for the electrical engineering foundation test. ` +
-        `The test environment is configured and ready. Here's what I found:\n\n` +
-        `• **Status:** All systems nominal\n` +
-        `• **Test ID:** ELEC-TEST-001-${Date.now().toString(36)}\n` +
-        `• **Next steps:** Review the foundation parameters and proceed with validation\n\n` +
-        `*This is a simulated agent response for testing purposes.*`
-      );
-      return;
+  // ============================================================
+  // SYSTEM CHANNELS — Bot posts automated alerts only
+  // ============================================================
+  if (type === 'system') {
+    // System channels are agent-write only; human messages are ignored
+    // unless it's #agent-commands (handled below)
+    if (name === 'agent-commands') {
+      // Handle commands (existing behavior)
+      await handleCommands(message);
     }
-
-    // TODO: Forward to OpenClaw agent runtime
-    // When the agent runtime is integrated, this is where we:
-    // 1. POST the message to the agent's task queue
-    // 2. The agent processes and responds
-    // 3. The bot posts the response back in this channel
     return;
   }
 
-  // Handle commands in #agent-commands on Openclaw-comms
-  if (message.channelId === '1499729515088314429') {
-    const args = message.content.split(' ');
+  // ============================================================
+  // CONTROL CHANNELS (#ai-work) — Orchestrator command hub
+  // ============================================================
+  if (type === 'control') {
+    // Check for @agent mention or command prefix
+    const content = message.content;
+    const isAgentMention = message.mentions.users.has(client.user.id);
+    const isCommand = content.startsWith('!') || content.startsWith('@agent');
+
+    if (!isAgentMention && !isCommand) {
+      // Human chatting without command — acknowledge but don't dispatch
+      return;
+    }
+
+    // Parse command
+    const args = content.replace(/<@!?\d+>/g, '').trim().split(' ');
     const command = args[0].toLowerCase();
 
     switch (command) {
@@ -248,47 +297,57 @@ client.on(Events.MessageCreate, async (message) => {
         break;
 
       case '!status':
-        const guilds = client.guilds.cache;
-        let status = '🟢 **OpenClaw Bot Status**\n\n';
-        status += `**Servers (${guilds.size}):**\n`;
-        guilds.forEach(g => {
-          const agentCh = Object.values(CHANNEL_MAP).filter(c => c.server === g.name && c.agent !== null).length;
-          status += `  • **${g.name}** — ${agentCh} agent channels\n`;
-        });
-        status += `\n**Total agent channels:** ${Object.values(CHANNEL_MAP).filter(c => c.agent !== null).length}`;
-        await message.reply(status);
+        await handleStatusCommand(message);
         break;
 
       case '!help':
         await message.reply(
-          '**OpenClaw Bot — How It Works**\n\n' +
-          '**For humans:** Just type in any channel. The bot forwards your message to the assigned agent.\n' +
-          '**For agents:** Reply in the same channel. Humans see your response immediately.\n\n' +
+          '**OpenClaw Bot — Hybrid Channel Model**\n\n' +
+          '**Control Channels (#ai-work):**\n' +
+          '`@agent plan #{issue-id}` — Plan work for an issue\n' +
+          '`@agent work on #{issue-id}` — Start work on an issue (creates ephemeral channel)\n' +
+          '`@agent status` — Show server status\n' +
+          '`@agent help` — Show this help\n\n' +
+          '**Issue Channels:**\n' +
+          'Type normally. Agent reads but replies in #ai-work.\n' +
+          'Mention @agent to get a cross-reference reply.\n\n' +
           '**Commands:**\n' +
-          '`!ping` - Check bot is alive\n' +
-          '`!status` - Show all servers and agent channels\n' +
-          '`!help` - Show this help\n' +
-          '`!channels` - List all channels with agent assignments\n' +
-          '`!whoami` - Show which agent this channel is assigned to'
+          '`!ping` — Check bot is alive\n' +
+          '`!status` — Show all servers and agent channels\n' +
+          '`!channels` — List all channels with agent assignments\n' +
+          '`!whoami` — Show which agent this channel is assigned to\n' +
+          '`!taxonomy` — Show channel type breakdown'
         );
         break;
 
       case '!channels':
-        let reply = '**All Agent Channels:**\n';
-        for (const [id, info] of Object.entries(CHANNEL_MAP)) {
-          if (info.agent) {
-            reply += `  • **${info.server}/#${info.name}** → ${info.agent} (${info.purpose})\n`;
-          }
-        }
-        await message.reply(reply);
+        await handleChannelsCommand(message);
         break;
 
       case '!whoami':
-        const thisChannel = CHANNEL_MAP[message.channelId];
-        if (thisChannel && thisChannel.agent) {
-          await message.reply(`This channel is assigned to **${thisChannel.agent}** for **${thisChannel.purpose}**.`);
+        await message.reply(`This is a **control channel** for **${server}**. Orchestrator agent listens here.`);
+        break;
+
+      case '!taxonomy':
+        await handleTaxonomyCommand(message);
+        break;
+
+      case '!work':
+      case '@agent':
+        // @agent work on {issue-id} — start work session
+        const issueArg = args.find(a => a.startsWith('#') || a.startsWith('PROCURE-') || a.startsWith('ELEC-') || a.startsWith('QS-') || a.startsWith('LOGIS-'));
+        if (issueArg) {
+          const issueId = issueArg.replace('#', '');
+          await message.reply(
+            `📋 **Starting work on ${issueId}**\n` +
+            `🔄 Spawning sub-agents in background sessions...\n` +
+            `📝 Progress will be posted in #project-log.\n` +
+            `💡 To create an ephemeral work channel, the orchestrator needs \`manage_channels\` permission.`
+          );
+          // TODO: Wire orchestrator to spawn sub-agents and optionally create #work-{issueId}
+          console.log(`📋 [WORK] ${server}: Starting work on ${issueId} — requested by ${message.author.username}`);
         } else {
-          await message.reply('This channel is not assigned to any specific agent.');
+          await message.reply('Usage: `@agent work on #{issue-id}` (e.g., `@agent work on PROCURE-007`)');
         }
         break;
 
@@ -297,8 +356,241 @@ client.on(Events.MessageCreate, async (message) => {
           await message.reply(`Unknown command: ${command}. Try \`!help\``);
         }
     }
+    return;
+  }
+
+  // ============================================================
+  // LOG CHANNELS (#project-log) — Agent-write only
+  // ============================================================
+  if (type === 'log') {
+    // Humans can comment for clarification
+    console.log(`💬 [${server}/#${name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
+    return;
+  }
+
+  // ============================================================
+  // OPS CHANNELS (#project-ops) — Staff-only commands
+  // ============================================================
+  if (type === 'ops') {
+    // For now, treat like control but with ops-specific commands
+    console.log(`🔧 [${server}/#${name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
+    await message.reply(`📨 Ops command received for **${server}**. Processing...`);
+    return;
+  }
+
+  // ============================================================
+  // WORK CHANNELS (#work-{issue-id}) — Full agent interaction
+  // ============================================================
+  if (type === 'work') {
+    // Full interaction — agent responds directly
+    console.log(`🔨 [${server}/#${name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
+    await message.reply(`📨 Working on **${purpose || name}**...`);
+    // Dispatch to agent runtime (same pipeline as before)
+    await dispatchTask(message, channelInfo);
+    return;
+  }
+
+  // ============================================================
+  // ISSUE CHANNELS (default) — Agent monitors, cross-ref replies
+  // ============================================================
+  if (type === 'issue' && agent) {
+    const isMentioned = message.mentions.users.has(client.user.id);
+
+    if (isMentioned) {
+      // Human mentioned the bot — reply in #ai-work with cross-reference
+      const controlChannel = findControlChannel(server);
+      if (controlChannel) {
+        const [controlId, controlInfo] = controlChannel;
+        const channel = client.channels.cache.get(controlId);
+        if (channel) {
+          await channel.send(
+            `📎 **Cross-reference from #${name}** (${server})\n` +
+            `**${message.author.username}** mentioned @agent:\n` +
+            `> ${message.content.substring(0, 200)}\n` +
+            `[Jump to message](${message.url})`
+          );
+        }
+      }
+      // Also reply in the issue channel with a brief acknowledgment
+      await message.reply(
+        `👋 I see your message in **#${name}**. I'll respond in **#ai-work** on **${server}**.\n` +
+        `📎 Check #ai-work for my response.`
+      );
+    } else {
+      // Human chatting without mention — agent monitors silently
+      console.log(`👁️ [${server}/#${name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
+    }
+    return;
   }
 });
+
+// ============================================================
+// TASK DISPATCH PIPELINE
+// ============================================================
+async function dispatchTask(message, channelInfo) {
+  const { agent, server, name, purpose } = channelInfo;
+
+  const taskId = `${purpose || name}-${Date.now().toString(36)}`;
+  const taskPayload = {
+    taskId,
+    channelId: message.channelId,
+    channelName: name,
+    server,
+    agent,
+    purpose,
+    user: message.author.username,
+    content: message.content,
+    timestamp: new Date().toISOString(),
+    status: 'pending'
+  };
+
+  console.log(`📋 [TASK ${taskId}] Created for ${agent} — ${purpose || name}`);
+
+  // Try to dispatch via API endpoint
+  const AGENT_API_URL = process.env.AGENT_API_URL || 'http://localhost:3060/api/agent-tasks';
+  let dispatched = false;
+
+  try {
+    const response = await fetch(AGENT_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(taskPayload)
+    });
+    if (response.ok) {
+      dispatched = true;
+      console.log(`✅ [TASK ${taskId}] Dispatched to ${AGENT_API_URL}`);
+    }
+  } catch (err) {
+    console.log(`⚠️ [TASK ${taskId}] API dispatch failed: ${err.message}`);
+  }
+
+  // Fallback: Write task to local file for agent pickup
+  if (!dispatched) {
+    const fs = require('fs');
+    const path = require('path');
+    const tasksDir = path.join(__dirname, '..', 'tasks');
+    if (!fs.existsSync(tasksDir)) {
+      fs.mkdirSync(tasksDir, { recursive: true });
+    }
+    const taskFile = path.join(tasksDir, `${taskId}.json`);
+    fs.writeFileSync(taskFile, JSON.stringify(taskPayload, null, 2));
+    console.log(`📁 [TASK ${taskId}] Written to ${taskFile}`);
+  }
+
+  await message.reply(
+    `📨 **${agent}** received your message for **${purpose || name}**.\n` +
+    `🆔 Task: \`${taskId}\`\n` +
+    `⏳ Status: ${dispatched ? 'Dispatched to agent runtime' : 'Queued for agent pickup'}`
+  );
+}
+
+// ============================================================
+// COMMAND HANDLERS
+// ============================================================
+
+async function handleCommands(message) {
+  const args = message.content.split(' ');
+  const command = args[0].toLowerCase();
+
+  switch (command) {
+    case '!ping':
+      await message.reply('🏓 Pong! Bot is online.');
+      break;
+
+    case '!status':
+      await handleStatusCommand(message);
+      break;
+
+    case '!help':
+      await message.reply(
+        '**OpenClaw Bot — How It Works**\n\n' +
+        '**For humans:** Just type in any channel. The bot forwards your message to the assigned agent.\n' +
+        '**For agents:** Reply in the same channel. Humans see your response immediately.\n\n' +
+        '**Commands:**\n' +
+        '`!ping` - Check bot is alive\n' +
+        '`!status` - Show all servers and agent channels\n' +
+        '`!help` - Show this help\n' +
+        '`!channels` - List all channels with agent assignments\n' +
+        '`!whoami` - Show which agent this channel is assigned to\n' +
+        '`!taxonomy` - Show channel type breakdown'
+      );
+      break;
+
+    case '!channels':
+      await handleChannelsCommand(message);
+      break;
+
+    case '!whoami':
+      const thisChannel = CHANNEL_MAP[message.channelId];
+      if (thisChannel && thisChannel.agent) {
+        await message.reply(`This channel is assigned to **${thisChannel.agent}** for **${thisChannel.purpose}**.`);
+      } else {
+        await message.reply('This channel is not assigned to any specific agent.');
+      }
+      break;
+
+    case '!taxonomy':
+      await handleTaxonomyCommand(message);
+      break;
+
+    default:
+      if (command.startsWith('!')) {
+        await message.reply(`Unknown command: ${command}. Try \`!help\``);
+      }
+  }
+}
+
+async function handleStatusCommand(message) {
+  const guilds = client.guilds.cache;
+  let status = '🟢 **OpenClaw Bot Status**\n\n';
+  status += `**Servers (${guilds.size}):**\n`;
+  guilds.forEach(g => {
+    const agentCh = Object.values(CHANNEL_MAP).filter(c => c.server === g.name && c.agent !== null).length;
+    const byType = {};
+    Object.values(CHANNEL_MAP).filter(c => c.server === g.name).forEach(ch => {
+      const t = getChannelType(ch.name);
+      byType[t] = (byType[t] || 0) + 1;
+    });
+    const typeSummary = Object.entries(byType).map(([k, v]) => `${k}:${v}`).join(' ');
+    status += `  • **${g.name}** — ${agentCh} agent channels (${typeSummary})\n`;
+  });
+  status += `\n**Total channels:** ${Object.keys(CHANNEL_MAP).length}`;
+  status += `\n**Total agent channels:** ${Object.values(CHANNEL_MAP).filter(c => c.agent !== null).length}`;
+  await message.reply(status);
+}
+
+async function handleChannelsCommand(message) {
+  let reply = '**All Agent Channels:**\n';
+  for (const [id, info] of Object.entries(CHANNEL_MAP)) {
+    if (info.agent) {
+      const type = getChannelType(info.name);
+      reply += `  • **${info.server}/#${info.name}** → ${info.agent} (${info.purpose}) [${type}]\n`;
+    }
+  }
+  await message.reply(reply);
+}
+
+async function handleTaxonomyCommand(message) {
+  const byType = {};
+  Object.values(CHANNEL_MAP).forEach(ch => {
+    const t = getChannelType(ch.name);
+    if (!byType[t]) byType[t] = [];
+    byType[t].push(ch);
+  });
+
+  let reply = '📊 **Channel Taxonomy Breakdown**\n\n';
+  for (const [type, channels] of Object.entries(byType)) {
+    reply += `**${type}** (${channels.length}):\n`;
+    channels.slice(0, 5).forEach(ch => {
+      reply += `  • ${ch.server}/#${ch.name}\n`;
+    });
+    if (channels.length > 5) {
+      reply += `  • ... and ${channels.length - 5} more\n`;
+    }
+    reply += '\n';
+  }
+  await message.reply(reply);
+}
 
 // ============================================================
 // LOGIN
