@@ -18,7 +18,7 @@ function getChannelType(name) {
   if (name === 'project-ops') return 'ops';
   if (name.startsWith('work-')) return 'work';
   if (['deployments', 'monitoring', 'security', 'operations', 'agent-commands', 'voice-comm'].includes(name)) return 'system';
-  return 'issue'; // default: existing issue channels
+  return 'issue';
 }
 
 function getReplyMode(type) {
@@ -34,26 +34,37 @@ function getReplyMode(type) {
 }
 
 // ============================================================
-// CHANNEL REGISTRY — Maps channel IDs to their metadata
+// SERVER REGISTRY — Maps server names to guild IDs
 // ============================================================
-const CHANNEL_MAP = {
-  // Openclaw-comms (1481205775710949428)
-  '1499729446494802011': { server: 'Openclaw-comms', name: 'deployments', agent: null, purpose: 'Deployment notifications' },
-  '1499729509572808834': { server: 'Openclaw-comms', name: 'monitoring', agent: null, purpose: 'Health alerts' },
-  '1499729511611367544': { server: 'Openclaw-comms', name: 'security', agent: null, purpose: 'Security events' },
-  '1499729513486090350': { server: 'Openclaw-comms', name: 'operations', agent: null, purpose: 'Operations updates' },
-  '1499729515088314429': { server: 'Openclaw-comms', name: 'agent-commands', agent: null, purpose: 'Bot commands' },
-  '1500087193442451578': { server: 'Openclaw-comms', name: 'voice-comm', agent: null, purpose: 'Voice communication' },
+const SERVER_MAP = {
+  'Openclaw-comms': '1481205775710949428',
+  'VOICE-COMM': '1500106236669071534',
+  'PROCURE-TEST': '1500115728769093632',
+  'PROCUREMENT-BIDDING': '1500116207552954540',
+  'SAFETY': '1500117103817134131',
+  'ELEC-TEST': '1500117452238098554',
+  'ELEC-PROJECTS': '1500129930053161010',
+  'QS-TEST': '1500129675916214486',
+  'CONTRACTS-QS': '1500130883154219258',
+  'MEASUREMENT': '1500131294879809696',
+  'LOGIS-TEST': '1500131631833288926',
+  'LOGISTICS': '1500131961761566851',
+  'ENGINEERING': '1500132315949699177',
+  'ALL-DISCIPLINES': '1500134557649731634'
+};
 
-  // VOICE-COMM (1500106236669071534)
+// ============================================================
+// ISSUE CHANNEL REGISTRY — Hardcoded issue channels with agent assignments
+// ============================================================
+const ISSUE_CHANNELS = {
+  // VOICE-COMM
   '1500106852615192626': { server: 'VOICE-COMM', name: 'devforge-voicecomm-core-interface', agent: 'DevForge AI', purpose: 'VOICE-COMM-001' },
   '1500106928423178417': { server: 'VOICE-COMM', name: 'devforge-voicecomm-hitl-approval', agent: 'DevForge AI', purpose: 'VOICE-COMM-002' },
   '1500107082647470132': { server: 'VOICE-COMM', name: 'devforge-voicecomm-document-attach', agent: 'DevForge AI', purpose: 'VOICE-COMM-003' },
   '1500107182299938966': { server: 'VOICE-COMM', name: 'devforge-voicecomm-audit-logging', agent: 'DevForge AI', purpose: 'VOICE-COMM-004' },
   '1500107298314649732': { server: 'VOICE-COMM', name: 'mobileforge-voicecomm-mobile-call', agent: 'MobileForge AI', purpose: 'VOICE-COMM-101' },
   '1500107364370616471': { server: 'VOICE-COMM', name: 'mobileforge-voicecomm-mobile-docs', agent: 'MobileForge AI', purpose: 'VOICE-COMM-102' },
-
-  // PROCURE-TEST (1500115728769093632)
+  // PROCURE-TEST
   '1500118995213484053': { server: 'PROCURE-TEST', name: 'devforge-procure-foundation', agent: 'DevForge AI', purpose: 'PROCURE-001' },
   '1500118997558104157': { server: 'PROCURE-TEST', name: 'infraforge-procure-database', agent: 'InfraForge AI', purpose: 'PROCURE-002' },
   '1500118999630090272': { server: 'PROCURE-TEST', name: 'devforge-procure-agents', agent: 'DevForge AI', purpose: 'PROCURE-003' },
@@ -70,8 +81,7 @@ const CHANNEL_MAP = {
   '1500119024732733540': { server: 'PROCURE-TEST', name: 'devforge-procure-feedback', agent: 'DevForge AI', purpose: 'PROCURE-014' },
   '1500119027371216990': { server: 'PROCURE-TEST', name: 'devforge-procure-signoff', agent: 'DevForge AI', purpose: 'PROCURE-015' },
   '1500119029359316992': { server: 'PROCURE-TEST', name: 'qualityforge-procure-regression', agent: 'QualityForge AI', purpose: 'PROCURE-016' },
-
-  // PROCUREMENT-BIDDING (1500116207552954540)
+  // PROCUREMENT-BIDDING
   '1500119413083602987': { server: 'PROCUREMENT-BIDDING', name: 'devforge-btnd-platform', agent: 'DevForge AI', purpose: 'BTND-PLATFORM' },
   '1500119415554048174': { server: 'PROCUREMENT-BIDDING', name: 'paperclipforge-proc-001', agent: 'PaperclipForge AI', purpose: 'PROC-001' },
   '1500119418058051717': { server: 'PROCUREMENT-BIDDING', name: 'paperclipforge-proc-amend', agent: 'PaperclipForge AI', purpose: 'PROC-AMEND' },
@@ -89,8 +99,7 @@ const CHANNEL_MAP = {
   '1500119445601915091': { server: 'PROCUREMENT-BIDDING', name: 'paperclipforge-proc-track', agent: 'PaperclipForge AI', purpose: 'PROC-TRACK' },
   '1500119447749529681': { server: 'PROCUREMENT-BIDDING', name: 'paperclipforge-proc-vetting', agent: 'PaperclipForge AI', purpose: 'PROC-VETTING' },
   '1500119449758334997': { server: 'PROCUREMENT-BIDDING', name: 'voiceforge-proc-voice', agent: 'VoiceForge AI', purpose: 'PROC-VOICE' },
-
-  // SAFETY (1500117103817134131)
+  // SAFETY
   '1500118682368475167': { server: 'SAFETY', name: 'voiceforge-safety-voice', agent: 'VoiceForge AI', purpose: 'SAFE-VOICE' },
   '1500118685006954537': { server: 'SAFETY', name: 'devforge-safety-contractor', agent: 'DevForge AI', purpose: 'SAFETY-CONTRACTOR' },
   '1500118687791845507': { server: 'SAFETY', name: 'devforge-safety-emergency', agent: 'DevForge AI', purpose: 'SAFETY-EMERGENCY' },
@@ -101,8 +110,7 @@ const CHANNEL_MAP = {
   '1500118698965598208': { server: 'SAFETY', name: 'devforge-safety-ppe', agent: 'DevForge AI', purpose: 'SAFETY-PPE' },
   '1500118701242974349': { server: 'SAFETY', name: 'knowledgeforge-safety-research', agent: 'KnowledgeForge AI', purpose: 'SAFETY-RESEARCH-ENHANCEMENT' },
   '1500118703612760225': { server: 'SAFETY', name: 'devforge-safety-training', agent: 'DevForge AI', purpose: 'SAFETY-TRAINING' },
-
-  // ELEC-TEST (1500117452238098554)
+  // ELEC-TEST
   '1500118034470404136': { server: 'ELEC-TEST', name: 'devforge-elec-test-foundation', agent: 'DevForge AI', purpose: 'ELEC-TEST-001' },
   '1500118036949237860': { server: 'ELEC-TEST', name: 'infraforge-elec-test-database', agent: 'InfraForge AI', purpose: 'ELEC-TEST-002' },
   '1500118039415488714': { server: 'ELEC-TEST', name: 'devforge-elec-test-agents', agent: 'DevForge AI', purpose: 'ELEC-TEST-003' },
@@ -119,12 +127,10 @@ const CHANNEL_MAP = {
   '1500118063599718522': { server: 'ELEC-TEST', name: 'devforge-elec-test-feedback', agent: 'DevForge AI', purpose: 'ELEC-TEST-014' },
   '1500118065508257933': { server: 'ELEC-TEST', name: 'devforge-elec-test-signoff', agent: 'DevForge AI', purpose: 'ELEC-TEST-015' },
   '1500118068444266536': { server: 'ELEC-TEST', name: 'qualityforge-elec-test-regression', agent: 'QualityForge AI', purpose: 'ELEC-TEST-016' },
-
-  // ELEC-PROJECTS (1500129930053161010)
+  // ELEC-PROJECTS
   '1500134762340290650': { server: 'ELEC-PROJECTS', name: 'devforge-elec-voice', agent: 'DevForge AI', purpose: 'ELEC-VOICE' },
   '1500134809425543178': { server: 'ELEC-PROJECTS', name: 'domainforge-elec-workflow', agent: 'DomainForge AI', purpose: 'ELEC-WORKFLOW' },
-
-  // QS-TEST (1500129675916214486)
+  // QS-TEST
   '1500134848046698646': { server: 'QS-TEST', name: 'devforge-qs-test-foundation', agent: 'DevForge AI', purpose: 'QS-TEST-001' },
   '1500134849644597292': { server: 'QS-TEST', name: 'infraforge-qs-test-database', agent: 'InfraForge AI', purpose: 'QS-TEST-002' },
   '1500134852194730160': { server: 'QS-TEST', name: 'devforge-qs-test-agents', agent: 'DevForge AI', purpose: 'QS-TEST-003' },
@@ -141,23 +147,20 @@ const CHANNEL_MAP = {
   '1500134876689731714': { server: 'QS-TEST', name: 'devforge-qs-test-feedback', agent: 'DevForge AI', purpose: 'QS-TEST-014' },
   '1500134878795010148': { server: 'QS-TEST', name: 'devforge-qs-test-signoff', agent: 'DevForge AI', purpose: 'QS-TEST-015' },
   '1500134881727086654': { server: 'QS-TEST', name: 'qualityforge-qs-test-regression', agent: 'QualityForge AI', purpose: 'QS-TEST-016' },
-
-  // CONTRACTS-QS (1500130883154219258)
+  // CONTRACTS-QS
   '1500134934331785367': { server: 'CONTRACTS-QS', name: 'domainforge-con-voice', agent: 'DomainForge AI', purpose: 'CON-VOICE' },
   '1500134935942660139': { server: 'CONTRACTS-QS', name: 'domainforge-cpost-voice', agent: 'DomainForge AI', purpose: 'CPOST-VOICE' },
   '1500134938769363046': { server: 'CONTRACTS-QS', name: 'domainforge-cpre-voice', agent: 'DomainForge AI', purpose: 'CPRE-VOICE' },
   '1500134940724170884': { server: 'CONTRACTS-QS', name: 'paperclipforge-proc-001-qs', agent: 'PaperclipForge AI', purpose: 'PROC-001' },
   '1500134942770725036': { server: 'CONTRACTS-QS', name: 'measureforge-qs-voice', agent: 'MeasureForge AI', purpose: 'QS-VOICE' },
-
-  // MEASUREMENT (1500131294879809696)
+  // MEASUREMENT
   '1500135012975120576': { server: 'MEASUREMENT', name: 'measureforge-measure-ai', agent: 'MeasureForge AI', purpose: 'MEASURE-AI' },
   '1500135015655411895': { server: 'MEASUREMENT', name: 'knowledgeforge-measure-analytics', agent: 'KnowledgeForge AI', purpose: 'MEASURE-ANALYTICS' },
   '1500135018000023795': { server: 'MEASUREMENT', name: 'measureforge-measure-cad', agent: 'MeasureForge AI', purpose: 'MEASURE-CAD' },
   '1500135020684247172': { server: 'MEASUREMENT', name: 'measureforge-measure-comm', agent: 'MeasureForge AI', purpose: 'MEASURE-COMM' },
   '1500135023146172477': { server: 'MEASUREMENT', name: 'measureforge-measure-templates', agent: 'MeasureForge AI', purpose: 'MEASURE-TEMPLATES' },
   '1500135025512026183': { server: 'MEASUREMENT', name: 'measureforge-measure-tender', agent: 'MeasureForge AI', purpose: 'MEASURE-TENDER' },
-
-  // LOGIS-TEST (1500131631833288926)
+  // LOGIS-TEST
   '1500135074379857920': { server: 'LOGIS-TEST', name: 'devforge-logis-test-foundation', agent: 'DevForge AI', purpose: 'LOGIS-TEST-001' },
   '1500135079224279042': { server: 'LOGIS-TEST', name: 'infraforge-logis-test-database', agent: 'InfraForge AI', purpose: 'LOGIS-TEST-002' },
   '1500135082005106749': { server: 'LOGIS-TEST', name: 'devforge-logis-test-agents', agent: 'DevForge AI', purpose: 'LOGIS-TEST-003' },
@@ -174,17 +177,14 @@ const CHANNEL_MAP = {
   '1500135107871248457': { server: 'LOGIS-TEST', name: 'devforge-logis-test-feedback', agent: 'DevForge AI', purpose: 'LOGIS-TEST-014' },
   '1500135110450745466': { server: 'LOGIS-TEST', name: 'devforge-logis-test-signoff', agent: 'DevForge AI', purpose: 'LOGIS-TEST-015' },
   '1500135112447365241': { server: 'LOGIS-TEST', name: 'qualityforge-logis-test-regression', agent: 'QualityForge AI', purpose: 'LOGIS-TEST-016' },
-
-  // LOGISTICS (1500131961761566851)
+  // LOGISTICS
   '1500135153278648480': { server: 'LOGISTICS', name: 'voiceforge-log-voice', agent: 'VoiceForge AI', purpose: 'LOG-VOICE' },
   '1500135155694567457': { server: 'LOGISTICS', name: 'devforge-logistics-platform', agent: 'DevForge AI', purpose: 'LOGISTICS-PLATFORM' },
-
-  // ENGINEERING (1500132315949699177)
+  // ENGINEERING
   '1500135158739898399': { server: 'ENGINEERING', name: 'paperclipforge-eng-auto', agent: 'PaperclipForge AI', purpose: 'ENG-AUTO-000' },
   '1500135161302351922': { server: 'ENGINEERING', name: 'devforge-eng-platform', agent: 'DevForge AI', purpose: 'ENG-PLATFORM-000' },
   '1500135162804043838': { server: 'ENGINEERING', name: 'voiceforge-eng-voice', agent: 'VoiceForge AI', purpose: 'ENG-VOICE' },
-
-  // ALL-DISCIPLINES (1500134557649731634)
+  // ALL-DISCIPLINES
   '1500135909285433435': { server: 'ALL-DISCIPLINES', name: 'domainforge-design-workflow', agent: 'DomainForge AI', purpose: 'DESIGN-WORKFLOW' },
   '1500135911361347727': { server: 'ALL-DISCIPLINES', name: 'voiceforge-arch-voice', agent: 'VoiceForge AI', purpose: 'ARCH-VOICE' },
   '1500135913219424421': { server: 'ALL-DISCIPLINES', name: 'domainforge-architectural-workflow', agent: 'DomainForge AI', purpose: 'ARCHITECTURAL-WORKFLOW' },
@@ -211,17 +211,50 @@ const CHANNEL_MAP = {
 };
 
 // ============================================================
-// HELPER: Get channel info with inferred type
+// DYNAMIC CHANNEL MAP — Built at startup from Discord guilds
 // ============================================================
-function getChannelInfo(channelId) {
-  const base = CHANNEL_MAP[channelId];
-  if (!base) return null;
-  const type = getChannelType(base.name);
-  return {
-    ...base,
-    type,
-    reply_mode: getReplyMode(type)
-  };
+let CHANNEL_MAP = {};
+
+function buildChannelMap(client) {
+  const map = {};
+  const guilds = client.guilds.cache;
+
+  // 1. Add all issue channels from the hardcoded registry
+  for (const [id, info] of Object.entries(ISSUE_CHANNELS)) {
+    map[id] = { ...info, type: 'issue', reply_mode: 'cross-ref' };
+  }
+
+  // 2. Scan all guilds for control/log/ops/system channels by name
+  guilds.forEach(guild => {
+    const serverName = guild.name;
+    guild.channels.cache.forEach(channel => {
+      if (channel.type !== ChannelType.GuildText) return;
+      const name = channel.name;
+      const type = getChannelType(name);
+      if (type === 'issue') return; // skip — already handled by ISSUE_CHANNELS
+
+      // Determine purpose based on type
+      let purpose = '';
+      switch (type) {
+        case 'control': purpose = 'Agent command hub'; break;
+        case 'log': purpose = 'Agent output log'; break;
+        case 'ops': purpose = 'Operations channel'; break;
+        case 'work': purpose = 'Ephemeral work channel'; break;
+        case 'system': purpose = 'System channel'; break;
+      }
+
+      map[channel.id] = {
+        server: serverName,
+        name: name,
+        agent: null,
+        purpose: purpose,
+        type: type,
+        reply_mode: getReplyMode(type)
+      };
+    });
+  });
+
+  return map;
 }
 
 // ============================================================
@@ -229,7 +262,7 @@ function getChannelInfo(channelId) {
 // ============================================================
 function findControlChannel(server) {
   return Object.entries(CHANNEL_MAP).find(
-    ([id, info]) => info.server === server && getChannelType(info.name) === 'control'
+    ([id, info]) => info.server === server && info.type === 'control'
   );
 }
 
@@ -238,169 +271,175 @@ function findControlChannel(server) {
 // ============================================================
 client.once(Events.ClientReady, (c) => {
   console.log(`✅ OpenClaw Bot logged in as ${c.user.tag}`);
-  const agentChannels = Object.values(CHANNEL_MAP).filter(c => c.agent !== null).length;
+
+  // Build the dynamic channel map
+  CHANNEL_MAP = buildChannelMap(c);
+
+  const agentChannels = Object.values(CHANNEL_MAP).filter(ch => ch.agent !== null).length;
   const byType = {};
   Object.values(CHANNEL_MAP).forEach(ch => {
-    const t = getChannelType(ch.name);
-    byType[t] = (byType[t] || 0) + 1;
+    byType[ch.type] = (byType[ch.type] || 0) + 1;
   });
+
   console.log(`📋 ${Object.keys(CHANNEL_MAP).length} channels monitored (${agentChannels} with agent assignments)`);
   console.log(`📊 Channel breakdown: ${Object.entries(byType).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
+
+  // Log which servers have control channels
+  const controlServers = Object.values(CHANNEL_MAP).filter(ch => ch.type === 'control').map(ch => ch.server);
+  const uniqueControlServers = [...new Set(controlServers)];
+  console.log(`🎮 Control channels (#ai-work) on: ${uniqueControlServers.join(', ') || 'NONE'}`);
 });
 
 // ============================================================
 // MESSAGE HANDLER — Channel-type-aware dispatch
 // ============================================================
 client.on(Events.MessageCreate, async (message) => {
-  // Ignore bot messages
   if (message.author.bot) return;
 
-  const channelInfo = getChannelInfo(message.channelId);
+  const channelInfo = CHANNEL_MAP[message.channelId];
   if (!channelInfo) return;
 
-  const { type, reply_mode, agent, server, name, purpose } = channelInfo;
+  const { type, agent, server, name, purpose } = channelInfo;
 
-  // ============================================================
-  // SYSTEM CHANNELS — Bot posts automated alerts only
-  // ============================================================
+  // ── SYSTEM CHANNELS (agent-commands, deployments, etc.) ──
   if (type === 'system') {
-    // System channels are agent-write only; human messages are ignored
-    // unless it's #agent-commands (handled below)
     if (name === 'agent-commands') {
-      // Handle commands (existing behavior)
-      await handleCommands(message);
+      const args = message.content.split(' ');
+      const command = args[0].toLowerCase();
+
+      switch (command) {
+        case '!ping':
+          await message.reply('🏓 Pong! Bot is online.');
+          break;
+
+        case '!status': {
+          const guilds = client.guilds.cache;
+          let status = '🟢 **OpenClaw Bot Status**\n\n';
+          status += `**Servers (${guilds.size}):**\n`;
+          guilds.forEach(g => {
+            const serverChannels = Object.values(CHANNEL_MAP).filter(c => c.server === g.name);
+            const agentCh = serverChannels.filter(c => c.agent !== null).length;
+            const byType = {};
+            serverChannels.forEach(ch => { byType[ch.type] = (byType[ch.type] || 0) + 1; });
+            const typeSummary = Object.entries(byType).map(([k, v]) => `${k}:${v}`).join(' ');
+            status += `  • **${g.name}** — ${agentCh} agent channels (${typeSummary})\n`;
+          });
+          status += `\n**Total channels:** ${Object.keys(CHANNEL_MAP).length}`;
+          await message.reply(status);
+          break;
+        }
+
+        case '!help':
+          await message.reply(
+            '**OpenClaw Bot — Hybrid Channel Model**\n\n' +
+            '**Control Channels (#ai-work):**\n' +
+            '`@agent plan #{issue-id}` — Plan work for an issue\n' +
+            '`@agent work on #{issue-id}` — Start work on an issue\n' +
+            '`@agent status` — Show server status\n\n' +
+            '**Issue Channels:**\n' +
+            'Type normally. Agent reads but replies in #ai-work.\n' +
+            'Mention @agent to get a cross-reference reply.\n\n' +
+            '**Commands:**\n' +
+            '`!ping` — Check bot is alive\n' +
+            '`!status` — Show all servers and agent channels\n' +
+            '`!channels` — List all channels with agent assignments\n' +
+            '`!whoami` — Show which agent this channel is assigned to\n' +
+            '`!taxonomy` — Show channel type breakdown'
+          );
+          break;
+
+        case '!channels': {
+          let reply = '**All Agent Channels:**\n';
+          for (const [id, info] of Object.entries(CHANNEL_MAP)) {
+            if (info.agent) {
+              reply += `  • **${info.server}/#${info.name}** → ${info.agent} (${info.purpose}) [${info.type}]\n`;
+            }
+          }
+          await message.reply(reply);
+          break;
+        }
+
+        case '!whoami': {
+          const thisChannel = CHANNEL_MAP[message.channelId];
+          if (thisChannel && thisChannel.agent) {
+            await message.reply(`This channel is assigned to **${thisChannel.agent}** for **${thisChannel.purpose}**.`);
+          } else {
+            await message.reply(`This is a **${thisChannel ? thisChannel.type : 'unknown'}** channel.`);
+          }
+          break;
+        }
+
+        case '!taxonomy': {
+          const byType = {};
+          Object.values(CHANNEL_MAP).forEach(ch => {
+            if (!byType[ch.type]) byType[ch.type] = [];
+            byType[ch.type].push(ch);
+          });
+          let reply = '📊 **Channel Taxonomy Breakdown**\n\n';
+          for (const [type, channels] of Object.entries(byType)) {
+            reply += `**${type}** (${channels.length}):\n`;
+            channels.slice(0, 5).forEach(ch => {
+              reply += `  • ${ch.server}/#${ch.name}\n`;
+            });
+            if (channels.length > 5) reply += `  • ... and ${channels.length - 5} more\n`;
+            reply += '\n';
+          }
+          await message.reply(reply);
+          break;
+        }
+
+        default:
+          if (command.startsWith('!')) {
+            await message.reply(`Unknown command: ${command}. Try \`!help\``);
+          }
+      }
     }
     return;
   }
 
-  // ============================================================
-  // CONTROL CHANNELS (#ai-work) — Orchestrator command hub
-  // ============================================================
+  // ── CONTROL CHANNELS (#ai-work) ──
   if (type === 'control') {
-    // Check for @agent mention or command prefix
     const content = message.content;
     const isAgentMention = message.mentions.users.has(client.user.id);
     const isCommand = content.startsWith('!') || content.startsWith('@agent');
 
-    if (!isAgentMention && !isCommand) {
-      // Human chatting without command — acknowledge but don't dispatch
-      return;
-    }
+    if (!isAgentMention && !isCommand) return;
 
-    // Parse command
     const args = content.replace(/<@!?\d+>/g, '').trim().split(' ');
     const command = args[0].toLowerCase();
 
-    switch (command) {
-      case '!ping':
-        await message.reply('🏓 Pong! Bot is online.');
-        break;
-
-      case '!status':
-        await handleStatusCommand(message);
-        break;
-
-      case '!help':
+    if (command === '!help' || command === '@agent') {
+      await message.reply(
+        '**Control Channel (#ai-work):**\n' +
+        '`@agent plan #{issue-id}` — Plan work\n' +
+        '`@agent work on #{issue-id}` — Start work\n' +
+        '`@agent status` — Show status\n' +
+        '`!help` — Show this'
+      );
+    } else if (command === '!work' || command === 'work') {
+      const issueArg = args.find(a => a.startsWith('#') || a.includes('-'));
+      if (issueArg) {
+        const issueId = issueArg.replace('#', '');
         await message.reply(
-          '**OpenClaw Bot — Hybrid Channel Model**\n\n' +
-          '**Control Channels (#ai-work):**\n' +
-          '`@agent plan #{issue-id}` — Plan work for an issue\n' +
-          '`@agent work on #{issue-id}` — Start work on an issue (creates ephemeral channel)\n' +
-          '`@agent status` — Show server status\n' +
-          '`@agent help` — Show this help\n\n' +
-          '**Issue Channels:**\n' +
-          'Type normally. Agent reads but replies in #ai-work.\n' +
-          'Mention @agent to get a cross-reference reply.\n\n' +
-          '**Commands:**\n' +
-          '`!ping` — Check bot is alive\n' +
-          '`!status` — Show all servers and agent channels\n' +
-          '`!channels` — List all channels with agent assignments\n' +
-          '`!whoami` — Show which agent this channel is assigned to\n' +
-          '`!taxonomy` — Show channel type breakdown'
+          `📋 **Starting work on ${issueId}**\n` +
+          `🔄 Spawning sub-agents...\n` +
+          `📝 Progress in #project-log.`
         );
-        break;
-
-      case '!channels':
-        await handleChannelsCommand(message);
-        break;
-
-      case '!whoami':
-        await message.reply(`This is a **control channel** for **${server}**. Orchestrator agent listens here.`);
-        break;
-
-      case '!taxonomy':
-        await handleTaxonomyCommand(message);
-        break;
-
-      case '!work':
-      case '@agent':
-        // @agent work on {issue-id} — start work session
-        const issueArg = args.find(a => a.startsWith('#') || a.startsWith('PROCURE-') || a.startsWith('ELEC-') || a.startsWith('QS-') || a.startsWith('LOGIS-'));
-        if (issueArg) {
-          const issueId = issueArg.replace('#', '');
-          await message.reply(
-            `📋 **Starting work on ${issueId}**\n` +
-            `🔄 Spawning sub-agents in background sessions...\n` +
-            `📝 Progress will be posted in #project-log.\n` +
-            `💡 To create an ephemeral work channel, the orchestrator needs \`manage_channels\` permission.`
-          );
-          // TODO: Wire orchestrator to spawn sub-agents and optionally create #work-{issueId}
-          console.log(`📋 [WORK] ${server}: Starting work on ${issueId} — requested by ${message.author.username}`);
-        } else {
-          await message.reply('Usage: `@agent work on #{issue-id}` (e.g., `@agent work on PROCURE-007`)');
-        }
-        break;
-
-      default:
-        if (command.startsWith('!')) {
-          await message.reply(`Unknown command: ${command}. Try \`!help\``);
-        }
+        console.log(`📋 [WORK] ${server}: Starting work on ${issueId} — ${message.author.username}`);
+      } else {
+        await message.reply('Usage: `@agent work on #{issue-id}` (e.g., `@agent work on PROCURE-007`)');
+      }
     }
     return;
   }
 
-  // ============================================================
-  // LOG CHANNELS (#project-log) — Agent-write only
-  // ============================================================
-  if (type === 'log') {
-    // Humans can comment for clarification
-    console.log(`💬 [${server}/#${name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
-    return;
-  }
-
-  // ============================================================
-  // OPS CHANNELS (#project-ops) — Staff-only commands
-  // ============================================================
-  if (type === 'ops') {
-    // For now, treat like control but with ops-specific commands
-    console.log(`🔧 [${server}/#${name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
-    await message.reply(`📨 Ops command received for **${server}**. Processing...`);
-    return;
-  }
-
-  // ============================================================
-  // WORK CHANNELS (#work-{issue-id}) — Full agent interaction
-  // ============================================================
-  if (type === 'work') {
-    // Full interaction — agent responds directly
-    console.log(`🔨 [${server}/#${name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
-    await message.reply(`📨 Working on **${purpose || name}**...`);
-    // Dispatch to agent runtime (same pipeline as before)
-    await dispatchTask(message, channelInfo);
-    return;
-  }
-
-  // ============================================================
-  // ISSUE CHANNELS (default) — Agent monitors, cross-ref replies
-  // ============================================================
+  // ── ISSUE CHANNELS (with agent assignments) ──
   if (type === 'issue' && agent) {
     const isMentioned = message.mentions.users.has(client.user.id);
-
     if (isMentioned) {
-      // Human mentioned the bot — reply in #ai-work with cross-reference
       const controlChannel = findControlChannel(server);
       if (controlChannel) {
-        const [controlId, controlInfo] = controlChannel;
+        const [controlId] = controlChannel;
         const channel = client.channels.cache.get(controlId);
         if (channel) {
           await channel.send(
@@ -411,186 +450,13 @@ client.on(Events.MessageCreate, async (message) => {
           );
         }
       }
-      // Also reply in the issue channel with a brief acknowledgment
-      await message.reply(
-        `👋 I see your message in **#${name}**. I'll respond in **#ai-work** on **${server}**.\n` +
-        `📎 Check #ai-work for my response.`
-      );
+      await message.reply(`👋 I see your message in **#${name}**. I'll respond in **#ai-work** on **${server}**.`);
     } else {
-      // Human chatting without mention — agent monitors silently
       console.log(`👁️ [${server}/#${name}] ${message.author.username}: ${message.content.substring(0, 100)}`);
     }
     return;
   }
 });
-
-// ============================================================
-// TASK DISPATCH PIPELINE
-// ============================================================
-async function dispatchTask(message, channelInfo) {
-  const { agent, server, name, purpose } = channelInfo;
-
-  const taskId = `${purpose || name}-${Date.now().toString(36)}`;
-  const taskPayload = {
-    taskId,
-    channelId: message.channelId,
-    channelName: name,
-    server,
-    agent,
-    purpose,
-    user: message.author.username,
-    content: message.content,
-    timestamp: new Date().toISOString(),
-    status: 'pending'
-  };
-
-  console.log(`📋 [TASK ${taskId}] Created for ${agent} — ${purpose || name}`);
-
-  // Try to dispatch via API endpoint
-  const AGENT_API_URL = process.env.AGENT_API_URL || 'http://localhost:3060/api/agent-tasks';
-  let dispatched = false;
-
-  try {
-    const response = await fetch(AGENT_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(taskPayload)
-    });
-    if (response.ok) {
-      dispatched = true;
-      console.log(`✅ [TASK ${taskId}] Dispatched to ${AGENT_API_URL}`);
-    }
-  } catch (err) {
-    console.log(`⚠️ [TASK ${taskId}] API dispatch failed: ${err.message}`);
-  }
-
-  // Fallback: Write task to local file for agent pickup
-  if (!dispatched) {
-    const fs = require('fs');
-    const path = require('path');
-    const tasksDir = path.join(__dirname, '..', 'tasks');
-    if (!fs.existsSync(tasksDir)) {
-      fs.mkdirSync(tasksDir, { recursive: true });
-    }
-    const taskFile = path.join(tasksDir, `${taskId}.json`);
-    fs.writeFileSync(taskFile, JSON.stringify(taskPayload, null, 2));
-    console.log(`📁 [TASK ${taskId}] Written to ${taskFile}`);
-  }
-
-  await message.reply(
-    `📨 **${agent}** received your message for **${purpose || name}**.\n` +
-    `🆔 Task: \`${taskId}\`\n` +
-    `⏳ Status: ${dispatched ? 'Dispatched to agent runtime' : 'Queued for agent pickup'}`
-  );
-}
-
-// ============================================================
-// COMMAND HANDLERS
-// ============================================================
-
-async function handleCommands(message) {
-  const args = message.content.split(' ');
-  const command = args[0].toLowerCase();
-
-  switch (command) {
-    case '!ping':
-      await message.reply('🏓 Pong! Bot is online.');
-      break;
-
-    case '!status':
-      await handleStatusCommand(message);
-      break;
-
-    case '!help':
-      await message.reply(
-        '**OpenClaw Bot — How It Works**\n\n' +
-        '**For humans:** Just type in any channel. The bot forwards your message to the assigned agent.\n' +
-        '**For agents:** Reply in the same channel. Humans see your response immediately.\n\n' +
-        '**Commands:**\n' +
-        '`!ping` - Check bot is alive\n' +
-        '`!status` - Show all servers and agent channels\n' +
-        '`!help` - Show this help\n' +
-        '`!channels` - List all channels with agent assignments\n' +
-        '`!whoami` - Show which agent this channel is assigned to\n' +
-        '`!taxonomy` - Show channel type breakdown'
-      );
-      break;
-
-    case '!channels':
-      await handleChannelsCommand(message);
-      break;
-
-    case '!whoami':
-      const thisChannel = CHANNEL_MAP[message.channelId];
-      if (thisChannel && thisChannel.agent) {
-        await message.reply(`This channel is assigned to **${thisChannel.agent}** for **${thisChannel.purpose}**.`);
-      } else {
-        await message.reply('This channel is not assigned to any specific agent.');
-      }
-      break;
-
-    case '!taxonomy':
-      await handleTaxonomyCommand(message);
-      break;
-
-    default:
-      if (command.startsWith('!')) {
-        await message.reply(`Unknown command: ${command}. Try \`!help\``);
-      }
-  }
-}
-
-async function handleStatusCommand(message) {
-  const guilds = client.guilds.cache;
-  let status = '🟢 **OpenClaw Bot Status**\n\n';
-  status += `**Servers (${guilds.size}):**\n`;
-  guilds.forEach(g => {
-    const agentCh = Object.values(CHANNEL_MAP).filter(c => c.server === g.name && c.agent !== null).length;
-    const byType = {};
-    Object.values(CHANNEL_MAP).filter(c => c.server === g.name).forEach(ch => {
-      const t = getChannelType(ch.name);
-      byType[t] = (byType[t] || 0) + 1;
-    });
-    const typeSummary = Object.entries(byType).map(([k, v]) => `${k}:${v}`).join(' ');
-    status += `  • **${g.name}** — ${agentCh} agent channels (${typeSummary})\n`;
-  });
-  status += `\n**Total channels:** ${Object.keys(CHANNEL_MAP).length}`;
-  status += `\n**Total agent channels:** ${Object.values(CHANNEL_MAP).filter(c => c.agent !== null).length}`;
-  await message.reply(status);
-}
-
-async function handleChannelsCommand(message) {
-  let reply = '**All Agent Channels:**\n';
-  for (const [id, info] of Object.entries(CHANNEL_MAP)) {
-    if (info.agent) {
-      const type = getChannelType(info.name);
-      reply += `  • **${info.server}/#${info.name}** → ${info.agent} (${info.purpose}) [${type}]\n`;
-    }
-  }
-  await message.reply(reply);
-}
-
-async function handleTaxonomyCommand(message) {
-  const byType = {};
-  Object.values(CHANNEL_MAP).forEach(ch => {
-    const t = getChannelType(ch.name);
-    if (!byType[t]) byType[t] = [];
-    byType[t].push(ch);
-  });
-
-  let reply = '📊 **Channel Taxonomy Breakdown**\n\n';
-  for (const [type, channels] of Object.entries(byType)) {
-    reply += `**${type}** (${channels.length}):\n`;
-    channels.slice(0, 5).forEach(ch => {
-      reply += `  • ${ch.server}/#${ch.name}\n`;
-    });
-    if (channels.length > 5) {
-      reply += `  • ... and ${channels.length - 5} more\n`;
-    }
-    reply += '\n';
-  }
-  await message.reply(reply);
-}
 
 // ============================================================
 // LOGIN
