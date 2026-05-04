@@ -405,8 +405,24 @@ function discordApiRequest(endpoint, method, body) {
 // ============================================================
 // EPHEMERAL WORK CHANNEL — Create
 // ============================================================
-async function createWorkChannel(guildId, serverName, issueId) {
-  const channelName = `work-${issueId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
+async function createWorkChannel(guildId, serverName, issueId, customName = null) {
+  const channelName = customName || `work-${issueId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
+
+  // Check if a work channel already exists for this issue
+  const existing = findChannelByName(serverName, channelName);
+  if (existing) {
+    const [existingId] = existing;
+    console.log(`📋 [WORK] Channel #${channelName} already exists (${existingId}) in ${serverName} — reusing`);
+    return existingId;
+  }
+
+  // Also check activeWorks for any existing session
+  for (const [chId, work] of Object.entries(activeWorks)) {
+    if (work.issueId === issueId && work.server === serverName) {
+      console.log(`📋 [WORK] Active work session already exists for ${issueId} in ${serverName} — reusing channel ${chId}`);
+      return chId;
+    }
+  }
 
   // Find or create a category for work channels
   let categoryId = null;
@@ -471,6 +487,33 @@ async function postToProjectLog(serverName, content) {
       await channel.send(content);
     }
   }
+}
+
+// ============================================================
+// POST TO ISSUE CHANNEL — Notify the assigned agent
+// ============================================================
+async function postToIssueChannel(serverName, issueId, content) {
+  // Find the issue channel by purpose (which matches the issue ID)
+  // Try the current server first, then ALL-DISCIPLINES as fallback
+  const issueEntry = Object.entries(CHANNEL_MAP).find(
+    ([id, info]) => info.server === serverName && info.purpose === issueId
+  ) || Object.entries(CHANNEL_MAP).find(
+    ([id, info]) => info.server === 'ALL-DISCIPLINES' && info.purpose === issueId
+  ) || Object.entries(CHANNEL_MAP).find(
+    // Fallback: match by prefix (e.g., PROD-001 matches PROD-TEST channel)
+    ([id, info]) => info.server === 'ALL-DISCIPLINES' && issueId.startsWith(info.purpose.split('-')[0])
+  );
+  if (issueEntry) {
+    const [issueChannelId] = issueEntry;
+    const channel = client.channels.cache.get(issueChannelId);
+    if (channel) {
+      await channel.send(content);
+      console.log(`📨 [ISSUE] Posted to #${CHANNEL_MAP[issueChannelId]?.name} (${serverName}/${issueId})`);
+      return true;
+    }
+  }
+  console.log(`⚠️ [ISSUE] No issue channel found for ${issueId} in ${serverName}`);
+  return false;
 }
 
 // ============================================================
@@ -703,41 +746,79 @@ client.on(Events.MessageCreate, async (message) => {
     const args = cleanContent.split(' ');
     const command = args[0].toLowerCase();
 
-    if (command === '!help' || command === '@agent') {
+    if (command === '!help' || (command === '@agent' && args.length === 1)) {
       await message.reply(
         '**Control Channel (#ai-work):**\n' +
-        '`@agent work on #{issue-id}` — Start work (creates #work-xxx, spawns sub-agents)\n' +
-        '`@agent plan #{issue-id}` — Plan work\n' +
+        '`@agent work on {issue-id(s)}` — Start work (comma-separated for multiple)\n' +
+        '`@agent plan {issue-id}` — Plan work\n' +
         '`@agent status` — Show status\n' +
-        '`!help` — Show this'
+        '`!help` — Show this\n' +
+        '\n**Channel routing:** Add `in #channel-name` to route output to a specific channel.'
       );
-    } else if (command === 'work' || command.startsWith('@agent') && args.includes('work')) {
-      const issueArg = args.find(a => a.startsWith('#') || (a.includes('-') && a.match(/^[A-Z]+-/)));
-      if (issueArg) {
-        const issueId = issueArg.replace('#', '').toUpperCase();
+    } else if (command === 'work' || (command.startsWith('@agent') && args.includes('work'))) {
+      // Parse optional channel routing: "in #channel-name"
+      let targetChannelName = null;
+      const inIdx = args.indexOf('in');
+      if (inIdx !== -1 && inIdx < args.length - 1) {
+        targetChannelName = args[inIdx + 1].replace(/^#/, '');
+        args.splice(inIdx, 2);
+      }
+
+      // Parse issue IDs: comma-separated, or space-separated after 'on'
+      const onIdx = args.indexOf('on');
+      let issueArgs = [];
+      if (onIdx !== -1 && onIdx < args.length - 1) {
+        const afterOn = args.slice(onIdx + 1).join(' ');
+        issueArgs = afterOn.split(',').map(s => s.trim()).filter(s => s.length > 0);
+      } else {
+        issueArgs = args.filter(a => a.startsWith('#') || (a.includes('-') && a.match(/^[A-Z]+-/)));
+      }
+
+      if (issueArgs.length === 0) {
+        await message.reply('Usage: `@agent work on {issue-id}` (e.g., `@agent work on PROCURE-001`)\nFor multiple: `@agent work on PROCURE-001, PROCURE-002`');
+        return;
+      }
+
+      const issueIds = issueArgs.map(a => a.replace(/^#/, '').replace(/,/g, '').trim().toUpperCase()).filter(a => a.length > 0);
+
+      await message.reply(
+        `📋 **Starting work on ${issueIds.length} issue(s)** ...\n` +
+        `🔧 Creating work channels...\n` +
+        `🤖 Spawning sub-agents...`
+      );
+
+      let successCount = 0;
+      let failCount = 0;
+      const createdChannels = [];
+
+      // If targetChannelName is set, create ONE shared channel for all issues
+      let sharedChannelId = null;
+      if (targetChannelName) {
+        const guildId = SERVER_MAP[server];
+        if (guildId) {
+          sharedChannelId = await createWorkChannel(guildId, server, issueIds.join('-'), targetChannelName);
+        }
+      }
+
+      for (const issueId of issueIds) {
         const guildId = SERVER_MAP[server];
         if (!guildId) {
           await message.reply(`❌ Unknown server: ${server}`);
-          return;
+          failCount++;
+          continue;
         }
 
-        await message.reply(
-          `📋 **Starting work on ${issueId}** ...\n` +
-          `🔧 Creating work channel...\n` +
-          `🤖 Spawning sub-agents...`
-        );
-
-        // 1. Create the ephemeral work channel
-        const workChannelId = await createWorkChannel(guildId, server, issueId);
+        // Use shared channel if targetChannelName was specified, otherwise per-issue
+        const workChannelId = sharedChannelId || await createWorkChannel(guildId, server, issueId);
         if (!workChannelId) {
           await message.reply(`❌ Failed to create work channel for ${issueId}. Check bot permissions.`);
-          return;
+          failCount++;
+          continue;
         }
 
-        // Rebuild channel map to include the new work channel
+        createdChannels.push({ issueId, workChannelId });
         scheduleRebuildChannelMap(2000);
 
-        // 2. Register the work session
         activeWorks[workChannelId] = {
           issueId,
           server,
@@ -746,12 +827,10 @@ client.on(Events.MessageCreate, async (message) => {
           startedAt: Date.now()
         };
 
-        // 3. Spawn 5 sub-agents
         const spawnResult = await spawnSubAgents(issueId, server, 5);
         const spawnedCount = spawnResult.spawned || 0;
         activeWorks[workChannelId].subAgentCount = spawnedCount;
 
-        // 4. Post to #project-log
         await postToProjectLog(server,
           `🔧 **Work Started: ${issueId}**\n` +
           `📅 Started: <t:${Math.floor(Date.now() / 1000)}:R>\n` +
@@ -759,20 +838,29 @@ client.on(Events.MessageCreate, async (message) => {
           `🔗 Work channel: <#${workChannelId}>`
         );
 
-        // 5. Confirm in control channel
-        const logChannel = findChannelByType(server, 'log');
-        const logMention = logChannel ? `<#${logChannel[0]}>` : '#project-log';
-
-        await message.reply(
-          `✅ **Work started on ${issueId}**\n` +
-          `🔧 Work channel: <#${workChannelId}>\n` +
-          `🤖 Sub-agents: ${spawnedCount > 0 ? spawnedCount : '0 (gateway pending)'}\n` +
-          `📝 Progress in ${logMention}\n` +
-          `\nType \`@agent done\` in <#${workChannelId}> when work is complete.`
+        // Notify the assigned agent's issue channel
+        await postToIssueChannel(server, issueId,
+          `🔧 **Work Started: ${issueId}**\n` +
+          `📅 Started: <t:${Math.floor(Date.now() / 1000)}:R>\n` +
+          `🤖 Sub-agents: ${spawnedCount > 0 ? spawnedCount : 'pending gateway config'}\n` +
+          `🔗 Work channel: <#${workChannelId}>\n` +
+          `📝 Type \`@agent done\` in the work channel when complete.`
         );
-      } else {
-        await message.reply('Usage: `@agent work on #{issue-id}` (e.g., `@agent work on PROCURE-007`)');
+
+        successCount++;
       }
+
+      const logChannel = findChannelByType(server, 'log');
+      const logMention = logChannel ? `<#${logChannel[0]}>` : '#project-log';
+
+      let summary = `✅ **Work started: ${successCount} success, ${failCount} failed**\n`;
+      createdChannels.forEach(({ issueId, workChannelId }) => {
+        summary += `🔧 ${issueId}: <#${workChannelId}>\n`;
+      });
+      summary += `📝 Progress in ${logMention}\n`;
+      summary += `\nType \`@agent done\` in work channels when complete.`;
+
+      await message.reply(summary);
     } else if (command === 'plan') {
       const issueArg = args.find(a => a.startsWith('#') || (a.includes('-') && a.match(/^[A-Z]+-/)));
       if (issueArg) {

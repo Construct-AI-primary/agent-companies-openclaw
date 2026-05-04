@@ -1,6 +1,6 @@
 # Execution Tracker
 
-**Status**: ✅ All 6 batches passed — Ready for Wave 2 execution (00400/00425/00435 Contracts)
+**Status**: ✅ All 6 API verification batches passed — Wave 1 ready for 5-instance parallel execution
 
 ## Purpose
 
@@ -10,7 +10,7 @@ This document tracks execution status for projects across the Construct AI agent
 
 | Project | Issues | Status | Phase | Gate Status |
 |---------|--------|--------|-------|-------------|
-| PROCURE-TEST | 16 | ✅ API verification complete — Ready for execution | Pre-execution | All gates unblocked |
+| PROCURE-TEST | 36 | ✅ API verification complete — Ready for 5-instance parallel execution | Wave 1 Pilot | All gates unblocked |
 | **00400 Contracts** | 15 | ✅ Issues generated — Ready for execution | Wave 2 Prep | All gates unblocked |
 | **00425 Pre-Award** | 15 | ✅ Issues generated — Ready for execution | Wave 2 Prep | All gates unblocked |
 | **00435 Post-Award** | 15 | ✅ Issues generated — Ready for execution | Wave 2 Prep | All gates unblocked |
@@ -47,10 +47,12 @@ This document tracks execution status for projects across the Construct AI agent
 
 ## Wave Execution Plan
 
-### Wave 1: 01900 Procurement (Active)
-- **Status**: Phase 3 in progress
-- **Issues**: 16 (PROCURE-001 through PROCURE-015 + PROCURE-013a)
+### Wave 1: 01900 Procurement + PROD + MOBILE (Active — 5-Instance Pilot)
+- **Status**: Awaiting execution — 5 parallel tracks per `batched-execution-plan.md` v2.0
+- **Issues**: 36 across 3 projects (PROCURE-TEST 16, PROD-TEST 15, MOBILE-TEST 6)
 - **Integration chains**: Foundation for INT-001, INT-009
+- **Execution model**: 5 parallel OpenClaw instances (I1-I5) with dependency chaining
+- **Estimated duration**: ~30-40 min (vs ~2.5h sequential)
 
 ### Wave 2: Contracts (00400/00425/00435) — Next
 - **Prerequisites**: 01900 Phase 3 complete, issue generation complete
