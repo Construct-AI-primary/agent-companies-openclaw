@@ -34,6 +34,34 @@ This document describes how the Construct AI agent ecosystem is orchestrated on 
 - **Synchronous**: Direct agent-to-agent via issue dependencies
 - **Asynchronous**: Heartbeat-based status polling
 - **Escalation**: Stalled agents → CEO → escalation path
+- **Discord**: Human-agent communication via dedicated Discord servers and channels
+
+### Discord Integration
+OpenClaw uses Discord as the primary human-agent communication layer. Each project phase has its own Discord server with channels named by the pattern `{company}-{discipline}-{issue-shorthand}`.
+
+**How agents communicate via Discord:**
+1. **Channel assignment** — Each issue/project gets a dedicated Discord channel
+2. **Channel topic** — Shows the issue ID and assigned company
+3. **Message author** — Bot username identifies the specific agent (e.g., `DevForge-Stream`, `QualityForge-Validator`)
+4. **Message routing** — The `!route` command sends messages from humans to agent channels
+5. **Agent updates** — Agents post progress updates, questions, and completion notifications
+6. **Human replies** — Provide feedback, approvals, or additional requirements
+
+**Current servers (6 total):**
+| Server | ID | Channels | Purpose |
+|--------|-----|----------|---------|
+| Openclaw-comms | 1481205775710949428 | 6 | Platform operations |
+| VOICE-COMM | 1500106236669071534 | 6 | Voice communication |
+| PROCURE-TEST | 1500115728769093632 | 16 | Phase 1 testing |
+| PROCUREMENT-BIDDING | 1500116207552954540 | 17 | Phase 2b procurement |
+| SAFETY | 1500117103817134131 | 10 | Phase 2c safety |
+| ELEC-TEST | 1500117452238098554 | 16 | Phase testing |
+
+**To integrate an agent with Discord:**
+1. Add the agent's slug to `AGENT_CHANNELS` in `scripts/deploy-discord-bot.sh`
+2. Map it to the appropriate channel name
+3. Redeploy the bot on the VPS: `bash scripts/deploy-discord-bot.sh`
+4. The agent can now receive messages via `!route <agent-slug> <message>`
 
 ### Quality Gates
 - Phase gates enforce pass rate thresholds (100% → 95% → 90% → 85%)

@@ -1,5 +1,23 @@
 const { Client, GatewayIntentBits, Events, ChannelType, PermissionsBitField } = require('discord.js');
 require('dotenv').config();
+const https = require('https');
+const http = require('http');
+
+// ============================================================
+// CONFIGURATION
+// ============================================================
+const CONFIG = {
+  // OpenClaw Gateway API (for sub-agent spawning)
+  openclawApiBase: process.env.OPENCLAW_API_BASE || 'http://localhost:8080',
+  openclawApiKey: process.env.OPENCLAW_API_KEY || '',
+  // Token for Discord API direct calls (create/archive channels)
+  discordToken: process.env.DISCORD_BOT_TOKEN || '',
+  // Rate limiting
+  maxSubAgentsPerWork: 10,
+  workChannelCategoryName: 'WORKSPACES',
+  // Ephemeral channel cleanup: archive after N minutes inactive
+  workChannelInactiveMinutes: 60,
+};
 
 const client = new Client({
   intents: [
@@ -8,6 +26,12 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
+
+// ============================================================
+// IN-MEMORY STATE
+// ============================================================
+// Tracks active work sessions: { workChannelId -> { issueId, server, status, subAgents, startedAt } }
+const activeWorks = {};
 
 // ============================================================
 // CHANNEL TYPE INFERENCE
@@ -54,7 +78,7 @@ const SERVER_MAP = {
 };
 
 // ============================================================
-// ISSUE CHANNEL REGISTRY — Hardcoded issue channels with agent assignments
+// ISSUE CHANNEL REGISTRY — Hardcoded with agent assignments
 // ============================================================
 const ISSUE_CHANNELS = {
   // VOICE-COMM
@@ -224,7 +248,7 @@ function buildChannelMap(client) {
     map[id] = { ...info, type: 'issue', reply_mode: 'cross-ref' };
   }
 
-  // 2. Scan all guilds for control/log/ops/system channels by name
+  // 2. Scan all guilds for control/log/ops/system/work channels by name
   guilds.forEach(guild => {
     const serverName = guild.name;
     guild.channels.cache.forEach(channel => {
@@ -257,13 +281,234 @@ function buildChannelMap(client) {
   return map;
 }
 
+// Rebuild channel map (call after creating/archiving channels)
+let rebuildTimeout = null;
+function scheduleRebuildChannelMap(delayMs = 3000) {
+  if (rebuildTimeout) clearTimeout(rebuildTimeout);
+  rebuildTimeout = setTimeout(() => {
+    CHANNEL_MAP = buildChannelMap(client);
+    console.log(`🔄 Channel map rebuilt: ${Object.keys(CHANNEL_MAP).length} channels`);
+    rebuildTimeout = null;
+  }, delayMs);
+}
+
 // ============================================================
-// HELPER: Find the #ai-work channel for a given server
+// HELPER: Find channels by type for a server
 // ============================================================
-function findControlChannel(server) {
+function findChannelByType(server, type) {
   return Object.entries(CHANNEL_MAP).find(
-    ([id, info]) => info.server === server && info.type === 'control'
+    ([id, info]) => info.server === server && info.type === type
   );
+}
+
+function findChannelByName(server, name) {
+  return Object.entries(CHANNEL_MAP).find(
+    ([id, info]) => info.server === server && info.name === name
+  );
+}
+
+// ============================================================
+// OPENCLAW GATEWAY API — Sub-agent spawning
+// ============================================================
+function openclawApiRequest(endpoint, method, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(endpoint, CONFIG.openclawApiBase);
+    const isHttp = url.protocol === 'http:';
+    const lib = isHttp ? http : https;
+
+    const options = {
+      hostname: url.hostname,
+      port: url.port || (isHttp ? 80 : 443),
+      path: url.pathname + url.search,
+      method: method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CONFIG.openclawApiKey}`
+      }
+    };
+
+    const req = lib.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve({ raw: data });
+        }
+      });
+    });
+
+    req.on('error', (err) => reject(err));
+
+    if (body) {
+      req.write(JSON.stringify(body));
+    }
+    req.end();
+  });
+}
+
+async function spawnSubAgents(issueId, serverName, count = 5) {
+  try {
+    const response = await openclawApiRequest('/api/agents/spawn', 'POST', {
+      task: issueId,
+      server: serverName,
+      count: Math.min(count, CONFIG.maxSubAgentsPerWork),
+      model: process.env.SUB_AGENT_MODEL || 'deepseek/deepseek-chat'
+    });
+    console.log(`🤖 [SPAWN] Spawned ${response.spawned || '?'} sub-agents for ${issueId}`);
+    return response;
+  } catch (err) {
+    console.log(`⚠️ [SPAWN] Gateway not available for ${issueId}: ${err.message}`);
+    console.log(`   (Sub-agents will run when OPENCLAW_API_BASE is configured)`);
+    return { spawned: 0, error: err.message };
+  }
+}
+
+// ============================================================
+// DISCORD API — Channel creation via REST
+// ============================================================
+function discordApiRequest(endpoint, method, body) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'discord.com',
+      port: 443,
+      path: `/api/v10${endpoint}`,
+      method: method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bot ${CONFIG.discordToken}`
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve({ raw: data });
+        }
+      });
+    });
+
+    req.on('error', (err) => reject(err));
+
+    if (body) {
+      req.write(JSON.stringify(body));
+    }
+    req.end();
+  });
+}
+
+// ============================================================
+// EPHEMERAL WORK CHANNEL — Create
+// ============================================================
+async function createWorkChannel(guildId, serverName, issueId) {
+  const channelName = `work-${issueId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
+
+  // Find or create a category for work channels
+  let categoryId = null;
+  const guild = client.guilds.cache.get(guildId);
+  if (guild) {
+    const category = guild.channels.cache.find(
+      ch => ch.type === ChannelType.GuildCategory && ch.name === CONFIG.workChannelCategoryName
+    );
+    if (category) {
+      categoryId = category.id;
+    }
+  }
+
+  try {
+    const result = await discordApiRequest(`/guilds/${guildId}/channels`, 'POST', {
+      name: channelName,
+      type: 0, // GuildText
+      parent_id: categoryId,
+      topic: `Active work session for ${issueId} — spawned sub-agents working in parallel.`
+    });
+
+    if (result.id) {
+      console.log(`📋 [WORK] Created work channel #${channelName} (${result.id}) in ${serverName}`);
+      return result.id;
+    } else {
+      console.error(`❌ [WORK] Failed to create channel: ${result.message}`);
+      return null;
+    }
+  } catch (err) {
+    console.error(`❌ [WORK] Error creating channel: ${err.message}`);
+    return null;
+  }
+}
+
+// ============================================================
+// EPHEMERAL WORK CHANNEL — Archive (rename + move to bottom)
+// ============================================================
+async function archiveWorkChannel(guildId, channelId) {
+  try {
+    const result = await discordApiRequest(`/channels/${channelId}`, 'PATCH', {
+      name: `archived-${CHANNEL_MAP[channelId]?.name || channelId}`,
+      topic: 'Archived work session — sub-agents completed.',
+      position: 999
+    });
+    console.log(`📦 [ARCHIVE] Archived work channel ${channelId}`);
+    scheduleRebuildChannelMap();
+    return result;
+  } catch (err) {
+    console.error(`❌ [ARCHIVE] Error archiving channel: ${err.message}`);
+  }
+}
+
+// ============================================================
+// POST TO PROJECT-LOG
+// ============================================================
+async function postToProjectLog(serverName, content) {
+  const logEntry = findChannelByType(serverName, 'log');
+  if (logEntry) {
+    const [logId] = logEntry;
+    const channel = client.channels.cache.get(logId);
+    if (channel) {
+      await channel.send(content);
+    }
+  }
+}
+
+// ============================================================
+// WORK SESSION COMPLETION
+// ============================================================
+async function completeWork(workChannelId, serverName, issueId) {
+  const workInfo = activeWorks[workChannelId];
+  if (!workInfo) return;
+
+  workInfo.status = 'completed';
+
+  // Post summary to #project-log
+  const duration = Math.round((Date.now() - workInfo.startedAt) / 1000 / 60);
+  await postToProjectLog(serverName,
+    `📋 **Work Complete: ${issueId}**\n` +
+    `📅 Duration: ${duration} minutes\n` +
+    `🤖 Sub-agents: ${workInfo.subAgentCount}\n` +
+    `✅ Status: Completed`
+  );
+
+  // Archive the work channel after a delay
+  setTimeout(async () => {
+    const guildId = SERVER_MAP[serverName];
+    if (guildId) {
+      await archiveWorkChannel(guildId, workChannelId);
+    }
+    delete activeWorks[workChannelId];
+  }, 60000); // 1 minute grace period
+
+  // Notify the control channel
+  const controlEntry = findChannelByType(serverName, 'control');
+  if (controlEntry) {
+    const [controlId] = controlEntry;
+    const channel = client.channels.cache.get(controlId);
+    if (channel) {
+      await channel.send(`✅ **Work completed for ${issueId}** — sub-agents finished. Check #project-log for summary.`);
+    }
+  }
 }
 
 // ============================================================
@@ -288,7 +533,35 @@ client.once(Events.ClientReady, (c) => {
   const controlServers = Object.values(CHANNEL_MAP).filter(ch => ch.type === 'control').map(ch => ch.server);
   const uniqueControlServers = [...new Set(controlServers)];
   console.log(`🎮 Control channels (#ai-work) on: ${uniqueControlServers.join(', ') || 'NONE'}`);
+
+  // Log OpenClaw gateway status
+  if (CONFIG.openclawApiBase && CONFIG.openclawApiBase !== 'http://localhost:8080') {
+    console.log(`🔗 OpenClaw Gateway: ${CONFIG.openclawApiBase}`);
+  } else {
+    console.log(`🔗 OpenClaw Gateway: NOT CONFIGURED (set OPENCLAW_API_BASE env var to enable sub-agent spawning)`);
+  }
 });
+
+// ============================================================
+// INTERVAL: Clean up stale work channels
+// ============================================================
+setInterval(() => {
+  const now = Date.now();
+  for (const [channelId, work] of Object.entries(activeWorks)) {
+    if (work.status === 'completed') continue;
+    const elapsed = (now - work.startedAt) / 1000 / 60;
+    if (elapsed > CONFIG.workChannelInactiveMinutes) {
+      console.log(`⏰ [CLEANUP] Work ${work.issueId} inactive for ${Math.round(elapsed)}m — auto-archiving`);
+      const channel = client.channels.cache.get(channelId);
+      if (channel) {
+        work.status = 'inactive';
+        completeWork(channelId, work.server, work.issueId);
+      } else {
+        delete activeWorks[channelId];
+      }
+    }
+  }
+}, 60000); // Check every minute
 
 // ============================================================
 // MESSAGE HANDLER — Channel-type-aware dispatch
@@ -301,7 +574,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   const { type, agent, server, name, purpose } = channelInfo;
 
-  // ── SYSTEM CHANNELS (agent-commands, deployments, etc.) ──
+  // ── SYSTEM CHANNELS (agent-commands) ──
   if (type === 'system') {
     if (name === 'agent-commands') {
       const args = message.content.split(' ');
@@ -325,26 +598,33 @@ client.on(Events.MessageCreate, async (message) => {
             status += `  • **${g.name}** — ${agentCh} agent channels (${typeSummary})\n`;
           });
           status += `\n**Total channels:** ${Object.keys(CHANNEL_MAP).length}`;
+          if (Object.keys(activeWorks).length > 0) {
+            status += `\n**Active works:** ${Object.keys(activeWorks).length}`;
+          }
           await message.reply(status);
           break;
         }
 
         case '!help':
           await message.reply(
-            '**OpenClaw Bot — Hybrid Channel Model**\n\n' +
+            '**OpenClaw Bot — Full Hybrid Channel Model**\n\n' +
             '**Control Channels (#ai-work):**\n' +
+            '`@agent work on #{issue-id}` — Start work (creates #work-xxx, spawns sub-agents)\n' +
             '`@agent plan #{issue-id}` — Plan work for an issue\n' +
-            '`@agent work on #{issue-id}` — Start work on an issue\n' +
             '`@agent status` — Show server status\n\n' +
             '**Issue Channels:**\n' +
-            'Type normally. Agent reads but replies in #ai-work.\n' +
-            'Mention @agent to get a cross-reference reply.\n\n' +
+            'Type normally. Agent reads silently.\n' +
+            'Mention @agent → cross-reference in #ai-work.\n\n' +
+            '**Work Channels (#work-xxx):**\n' +
+            'Created automatically when work starts.\n' +
+            'Type @agent done → completes and archives.\n\n' +
             '**Commands:**\n' +
             '`!ping` — Check bot is alive\n' +
-            '`!status` — Show all servers and agent channels\n' +
+            '`!status` — Show all servers and active works\n' +
             '`!channels` — List all channels with agent assignments\n' +
-            '`!whoami` — Show which agent this channel is assigned to\n' +
-            '`!taxonomy` — Show channel type breakdown'
+            '`!whoami` — Show this channel type\n' +
+            '`!taxonomy` — Show channel type breakdown\n' +
+            '`!works` — List active work sessions'
           );
           break;
 
@@ -388,6 +668,20 @@ client.on(Events.MessageCreate, async (message) => {
           break;
         }
 
+        case '!works': {
+          if (Object.keys(activeWorks).length === 0) {
+            await message.reply('No active work sessions.');
+            return;
+          }
+          let reply = '🔧 **Active Work Sessions**\n\n';
+          for (const [channelId, work] of Object.entries(activeWorks)) {
+            const elapsed = Math.round((Date.now() - work.startedAt) / 1000 / 60);
+            reply += `  • **${work.issueId}** — ${elapsed}m — ${work.subAgentCount} sub-agents — ${work.status}\n`;
+          }
+          await message.reply(reply);
+          break;
+        }
+
         default:
           if (command.startsWith('!')) {
             await message.reply(`Unknown command: ${command}. Try \`!help\``);
@@ -405,29 +699,163 @@ client.on(Events.MessageCreate, async (message) => {
 
     if (!isAgentMention && !isCommand) return;
 
-    const args = content.replace(/<@!?\d+>/g, '').trim().split(' ');
+    const cleanContent = content.replace(/<@!?\d+>/g, '').trim();
+    const args = cleanContent.split(' ');
     const command = args[0].toLowerCase();
 
     if (command === '!help' || command === '@agent') {
       await message.reply(
         '**Control Channel (#ai-work):**\n' +
+        '`@agent work on #{issue-id}` — Start work (creates #work-xxx, spawns sub-agents)\n' +
         '`@agent plan #{issue-id}` — Plan work\n' +
-        '`@agent work on #{issue-id}` — Start work\n' +
         '`@agent status` — Show status\n' +
         '`!help` — Show this'
       );
-    } else if (command === '!work' || command === 'work') {
-      const issueArg = args.find(a => a.startsWith('#') || a.includes('-'));
+    } else if (command === 'work' || command.startsWith('@agent') && args.includes('work')) {
+      const issueArg = args.find(a => a.startsWith('#') || (a.includes('-') && a.match(/^[A-Z]+-/)));
       if (issueArg) {
-        const issueId = issueArg.replace('#', '');
+        const issueId = issueArg.replace('#', '').toUpperCase();
+        const guildId = SERVER_MAP[server];
+        if (!guildId) {
+          await message.reply(`❌ Unknown server: ${server}`);
+          return;
+        }
+
         await message.reply(
-          `📋 **Starting work on ${issueId}**\n` +
-          `🔄 Spawning sub-agents...\n` +
-          `📝 Progress in #project-log.`
+          `📋 **Starting work on ${issueId}** ...\n` +
+          `🔧 Creating work channel...\n` +
+          `🤖 Spawning sub-agents...`
         );
-        console.log(`📋 [WORK] ${server}: Starting work on ${issueId} — ${message.author.username}`);
+
+        // 1. Create the ephemeral work channel
+        const workChannelId = await createWorkChannel(guildId, server, issueId);
+        if (!workChannelId) {
+          await message.reply(`❌ Failed to create work channel for ${issueId}. Check bot permissions.`);
+          return;
+        }
+
+        // Rebuild channel map to include the new work channel
+        scheduleRebuildChannelMap(2000);
+
+        // 2. Register the work session
+        activeWorks[workChannelId] = {
+          issueId,
+          server,
+          status: 'active',
+          subAgentCount: 0,
+          startedAt: Date.now()
+        };
+
+        // 3. Spawn 5 sub-agents
+        const spawnResult = await spawnSubAgents(issueId, server, 5);
+        const spawnedCount = spawnResult.spawned || 0;
+        activeWorks[workChannelId].subAgentCount = spawnedCount;
+
+        // 4. Post to #project-log
+        await postToProjectLog(server,
+          `🔧 **Work Started: ${issueId}**\n` +
+          `📅 Started: <t:${Math.floor(Date.now() / 1000)}:R>\n` +
+          `🤖 Sub-agents: ${spawnedCount > 0 ? spawnedCount : 'pending gateway config'}\n` +
+          `🔗 Work channel: <#${workChannelId}>`
+        );
+
+        // 5. Confirm in control channel
+        const logChannel = findChannelByType(server, 'log');
+        const logMention = logChannel ? `<#${logChannel[0]}>` : '#project-log';
+
+        await message.reply(
+          `✅ **Work started on ${issueId}**\n` +
+          `🔧 Work channel: <#${workChannelId}>\n` +
+          `🤖 Sub-agents: ${spawnedCount > 0 ? spawnedCount : '0 (gateway pending)'}\n` +
+          `📝 Progress in ${logMention}\n` +
+          `\nType \`@agent done\` in <#${workChannelId}> when work is complete.`
+        );
       } else {
         await message.reply('Usage: `@agent work on #{issue-id}` (e.g., `@agent work on PROCURE-007`)');
+      }
+    } else if (command === 'plan') {
+      const issueArg = args.find(a => a.startsWith('#') || (a.includes('-') && a.match(/^[A-Z]+-/)));
+      if (issueArg) {
+        const issueId = issueArg.replace('#', '').toUpperCase();
+        await message.reply(
+          `📋 **Planning ${issueId}**\n` +
+          `🔍 Reading issue context...\n` +
+          `📝 Estimated sub-agents needed: 5\n` +
+          `Use \`@agent work on ${issueId}\` to begin execution.`
+        );
+        await postToProjectLog(server,
+          `📋 **Planning: ${issueId}**\n` +
+          `Requested by ${message.author.username}\n` +
+          `Awaiting execution command.`
+        );
+      } else {
+        await message.reply('Usage: `@agent plan #{issue-id}` (e.g., `@agent plan PROCURE-007`)');
+      }
+    }
+    return;
+  }
+
+  // ── WORK CHANNELS (#work-xxx) ──
+  if (type === 'work') {
+    const workInfo = activeWorks[message.channelId];
+    if (!workInfo) {
+      console.log(`⚠️ [WORK] Unknown work channel: ${message.channelId}`);
+      return;
+    }
+
+    const content = message.content;
+    const isAgentMention = message.mentions.users.has(client.user.id);
+
+    // Check for completion trigger
+    if (isAgentMention && (content.toLowerCase().includes('done') || content.toLowerCase().includes('complete'))) {
+      await message.reply(`🔄 Completing work for **${workInfo.issueId}**...`);
+      await completeWork(message.channelId, workInfo.server, workInfo.issueId);
+      return;
+    }
+
+    // Forward messages to the related issue channel if possible
+    if (isAgentMention) {
+      const issueChannel = Object.entries(CHANNEL_MAP).find(
+        ([id, info]) => info.server === workInfo.server && info.purpose === workInfo.issueId
+      );
+      if (issueChannel) {
+        const [issueId] = issueChannel;
+        const channel = client.channels.cache.get(issueId);
+        if (channel) {
+          await channel.send(
+            `📎 **From #${name}** — Sub-agent update for **${workInfo.issueId}**\n` +
+            `> ${content.substring(0, 200)}\n`
+          );
+        }
+      }
+    }
+
+    // Log work channel activity
+    console.log(`🔧 [WORK/${workInfo.issueId}] ${message.author.username}: ${content.substring(0, 100)}`);
+    return;
+  }
+
+  // ── LOG CHANNELS (#project-log) — Agent writes only ──
+  if (type === 'log') {
+    // Humans can write, but it's primarily agent-output
+    console.log(`📝 [LOG/${server}] ${message.author.username}: ${content.substring(0, 100)}`);
+    return;
+  }
+
+  // ── OPS CHANNELS (#project-ops) ──
+  if (type === 'ops') {
+    const content = message.content;
+    const isAgentMention = message.mentions.users.has(client.user.id);
+
+    if (isAgentMention) {
+      const cleanContent = content.replace(/<@!?\d+>/g, '').trim();
+      if (cleanContent.includes('deploy') || cleanContent.includes('restart') || cleanContent.includes('status')) {
+        await message.reply(
+          `⚙️ **Operations Command Received**\n` +
+          `This channel handles infrastructure commands.\n` +
+          `For VPS operations, use: \`!deploy\`, \`!backup\`, \`!status\`\n` +
+          `(Full integration pending OpenClaw gateway setup)`
+        );
       }
     }
     return;
@@ -437,14 +865,14 @@ client.on(Events.MessageCreate, async (message) => {
   if (type === 'issue' && agent) {
     const isMentioned = message.mentions.users.has(client.user.id);
     if (isMentioned) {
-      const controlChannel = findControlChannel(server);
-      if (controlChannel) {
-        const [controlId] = controlChannel;
+      const controlEntry = findChannelByType(server, 'control');
+      if (controlEntry) {
+        const [controlId] = controlEntry;
         const channel = client.channels.cache.get(controlId);
         if (channel) {
           await channel.send(
             `📎 **Cross-reference from #${name}** (${server})\n` +
-            `**${message.author.username}** mentioned @agent:\n` +
+            `**${message.author.username}** mentioned @agent regarding **${purpose}**:\n` +
             `> ${message.content.substring(0, 200)}\n` +
             `[Jump to message](${message.url})`
           );
@@ -456,6 +884,9 @@ client.on(Events.MessageCreate, async (message) => {
     }
     return;
   }
+
+  // ── EPHEMERAL / UNCATEGORIZED CHANNELS ──
+  console.log(`👁️ [${server}/#${name}] (${type}) ${message.author.username}: ${message.content.substring(0, 100)}`);
 });
 
 // ============================================================
