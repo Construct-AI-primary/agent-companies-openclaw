@@ -762,11 +762,11 @@ function setupMessageHandler(client) {
       const content = message.content;
       const isAgentMention = message.mentions.users.has(client.user.id);
       const hasAgentRoleMention = message.mentions.roles.some(r => r.name.toLowerCase() === 'agent');
-      const isCommand = content.startsWith('!') || content.startsWith('@agent') || hasAgentRoleMention;
+      const isCommand = content.startsWith('!') || hasAgentRoleMention;
 
       if (!isAgentMention && !isCommand) return;
 
-      const cleanContent = content.replace(/<@!?&?\d+>/g, '').trim();
+      const cleanContent = content.replace(/<@[^>]+>/g, '').trim();
       const args = cleanContent.split(' ');
       const command = args[0].toLowerCase();
 
