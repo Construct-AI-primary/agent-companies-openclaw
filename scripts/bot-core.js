@@ -761,7 +761,7 @@ function setupMessageHandler(client) {
     if (type === 'control') {
       const content = message.content;
       const isAgentMention = message.mentions.users.has(client.user.id);
-      const hasAgentRoleMention = message.mentions.roles.some(r => r.name.toLowerCase() === 'agent');
+      const hasAgentRoleMention = message.mentions.roles.some(r => r.name.toLowerCase().includes('agent'));
       const isCommand = content.startsWith('!') || hasAgentRoleMention;
 
       if (!isAgentMention && !isCommand) return;
