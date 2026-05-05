@@ -2,7 +2,6 @@
 // Create #bot-commands channel in all servers
 // ============================================================
 const https = require('https');
-require('dotenv').config();
 
 const SERVER_MAP = {
   'Openclaw-comms': '1481205775710949428',
@@ -22,6 +21,11 @@ const SERVER_MAP = {
 };
 
 const token = process.env.DISCORD_BOT_TOKEN;
+if (!token) {
+  console.error('❌ DISCORD_BOT_TOKEN environment variable is not set.');
+  console.error('   Set it with: export DISCORD_BOT_TOKEN="your-token-here"');
+  process.exit(1);
+}
 
 function discordApiRequest(endpoint, method, body) {
   return new Promise((resolve, reject) => {
