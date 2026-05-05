@@ -1,10 +1,10 @@
-# agent-companies-openclaw
+# docs-companies-agents-ops
 
 **OpenClaw orchestration layer — scripts, schemas, bot, and infrastructure.**
 
-This repository contains the OpenClaw-native orchestration infrastructure: Discord bot, database schemas, deployment scripts, and adapter configurations. 
+This repository contains the OpenClaw-native orchestration infrastructure: Discord bot, database schemas, deployment scripts, and adapter configurations.
 
-**Knowledge content (agents, companies, skills, disciplines, triggers) has moved to [`docs-companies-agents`](https://github.com/Construct-AI-primary/docs-companies-agents).**
+**Knowledge content (agents, companies, skills, disciplines, triggers) lives in [`docs-companies-agents-knowledge`](https://github.com/Construct-AI-primary/docs-companies-agents-knowledge).**
 
 ## Repository Structure
 
@@ -22,7 +22,7 @@ This repository contains the OpenClaw-native orchestration infrastructure: Disco
 
 | Repo | Purpose |
 |------|---------|
-| **[docs-companies-agents](https://github.com/Construct-AI-primary/docs-companies-agents)** | **Flat knowledge repo** — agents, companies, skills, disciplines, triggers, orchestration docs |
+| **[docs-companies-agents-knowledge](https://github.com/Construct-AI-primary/docs-companies-agents-knowledge)** | **Flat knowledge repo** — agents, companies, skills, disciplines, triggers, orchestration docs |
 | `agent-companies-core` | Original source (kept for history) |
 | `agent-companies-paperclip` | Paperclip application (server, UI, CLI, packages) |
 
@@ -30,17 +30,8 @@ This repository contains the OpenClaw-native orchestration infrastructure: Disco
 
 ```bash
 # Clone this repo
-git clone https://github.com/Construct-AI-primary/agent-companies-openclaw.git
-cd agent-companies-openclaw
+git clone https://github.com/Construct-AI-primary/docs-companies-agents-ops.git
+cd docs-companies-agents-ops
 
 # Initialize submodules
 git submodule update --init --recursive
-
-# Browse available agents and projects
-ls agent-companies-core/agents/
-ls agent-companies-core/projects/
-```
-
-## Origin
-
-Part of the Agent Companies repo restructure (Phase 3). Platform-agnostic content lives in `agent-companies-core`; OpenClaw-specific orchestration will be developed here as OpenClaw capabilities are understood.
