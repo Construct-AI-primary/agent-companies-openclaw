@@ -381,10 +381,20 @@ async function completeWork(client, workChannelId, serverName, issueId) {
 // ============================================================
 function setupMessageHandler(client) {
   client.on(Events.MessageCreate, async (message) => {
-    if (message.author.bot) return;
+    // DEBUG: Log ALL messages to see if handler is triggered
+    console.log(`📨 [MSG] ${message.author.username} in #${message.channel?.name || message.channelId} (${message.channelId}): ${message.content.substring(0, 50)}`);
+    
+    if (message.author.bot) {
+      console.log(`📨 [MSG] Ignoring bot message`);
+      return;
+    }
 
-    const channelInfo = CHANNEL_MAP[message.channelId];
-    if (!channelInfo) return;
+    const channelId = message.channel?.id || message.channelId;
+    const channelInfo = CHANNEL_MAP[channelId];
+    if (!channelInfo) {
+      console.log(`📨 [MSG] No channelInfo for ${channelId} — CHANNEL_MAP has ${Object.keys(CHANNEL_MAP).length} entries`);
+      return;
+    }
 
     const { type, server, name, purpose, agentDisplay } = channelInfo;
 
