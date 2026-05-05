@@ -818,6 +818,79 @@ function setupMessageHandler(client) {
         return;
       }
 
+      // ── !ping in control channel ──
+      if (command === '!ping') {
+        await message.reply('🏓 Pong! Bot is online.');
+        return;
+      }
+
+      // ── !status in control channel ──
+      if (command === '!status') {
+        const guilds = client.guilds.cache;
+        let status = '🟢 **OpenClaw Bot Status**\n\n';
+        status += `**Servers (${guilds.size}):**\n`;
+        guilds.forEach(g => {
+          const serverChannels = Object.values(CHANNEL_MAP).filter(c => c.server === g.name);
+          const agentCh = serverChannels.filter(c => c.agentDisplay !== null).length;
+          const byType = {};
+          serverChannels.forEach(ch => { byType[ch.type] = (byType[ch.type] || 0) + 1; });
+          const typeSummary = Object.entries(byType).map(([k, v]) => `${k}:${v}`).join(' ');
+          status += `  • **${g.name}** — ${agentCh} agent channels (${typeSummary})\n`;
+        });
+        status += `\n**Total channels:** ${Object.keys(CHANNEL_MAP).length}`;
+        if (Object.keys(activeWorks).length > 0) {
+          status += `\n**Active works:** ${Object.keys(activeWorks).length}`;
+        }
+        await message.reply(status);
+        return;
+      }
+
+      // ── !works in control channel ──
+      if (command === '!works') {
+        if (Object.keys(activeWorks).length === 0) {
+          await message.reply('No active work sessions.');
+          return;
+        }
+        let reply = '🔧 **Active Work Sessions**\n\n';
+        for (const [channelId, work] of Object.entries(activeWorks)) {
+          const elapsed = Math.round((Date.now() - work.startedAt) / 1000 / 60);
+          reply += `  • **${work.issueId}** — ${elapsed}m — ${work.subAgentCount} sub-agents — ${work.status}\n`;
+        }
+        await message.reply(reply);
+        return;
+      }
+
+      // ── !channels in control channel ──
+      if (command === '!channels') {
+        let reply = '**All Agent Channels:**\n';
+        for (const [id, info] of Object.entries(CHANNEL_MAP)) {
+          if (info.agentDisplay) {
+            const agentInfo = info.agentSlug && AGENT_REGISTRY[info.agentSlug] 
+              ? `**${info.agentDisplay}** (${info.agentRole})` 
+              : info.agentDisplay;
+            reply += `  • **${info.server}/#${info.name}** → ${agentInfo} — ${info.purpose} [${info.type}]\n`;
+          }
+        }
+        await message.reply(reply);
+        return;
+      }
+
+      // ── !log in control channel ──
+      if (command === '!log') {
+        const lines = parseInt(args[1]) || 20;
+        try {
+          const result = execSync(
+            `tail -${lines} ${CONFIG.botLogPath} 2>/dev/null || echo "Log file not found"`,
+            { timeout: 5000 }
+          ).toString().trim();
+          const truncated = result.length > 1900 ? result.substring(result.length - 1900) : result;
+          await message.reply(`📋 **Last ${lines} log lines:**\n\`\`\`\n${truncated}\n\`\`\``);
+        } catch (err) {
+          await message.reply(`⚠️ Could not read logs: ${err.message}`);
+        }
+        return;
+      }
+
       if (command === '!help' || (command === '@agent' && args.length === 1)) {
         await message.reply(
           '**Control Channel (#ai-work):**\n' +
