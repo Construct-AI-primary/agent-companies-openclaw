@@ -37,7 +37,7 @@ function getChannelType(name) {
   if (name === 'project-log') return 'log';
   if (name === 'project-ops') return 'ops';
   if (name.startsWith('work-')) return 'work';
-  if (['deployments', 'monitoring', 'security', 'operations', 'agent-commands', 'voice-comm'].includes(name)) return 'system';
+  if (['deployments', 'monitoring', 'security', 'operations', 'agent-commands', 'voice-comm', 'bot-commands'].includes(name)) return 'system';
   return 'issue';
 }
 
@@ -388,9 +388,9 @@ function setupMessageHandler(client) {
 
     const { type, server, name, purpose, agentDisplay } = channelInfo;
 
-    // ── SYSTEM CHANNELS (agent-commands) ──
+    // ── SYSTEM CHANNELS (agent-commands / bot-commands) ──
     if (type === 'system') {
-      if (name === 'agent-commands') {
+      if (name === 'agent-commands' || name === 'bot-commands') {
         const args = message.content.split(' ');
         const command = args[0].toLowerCase();
 
