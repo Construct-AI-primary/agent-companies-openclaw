@@ -1,6 +1,22 @@
 // ============================================================
 // BOT ENTRY POINT — Slim module (imports, client setup, login)
 // ============================================================
+// ============================================================
+// GLOBAL ERROR HANDLERS — Must be registered before any async code
+// Uses fs.writeSync to ensure logs flush before process exit
+// ============================================================
+const fs = require('fs');
+function logFatal(msg) {
+  const line = `[FATAL] ${new Date().toISOString()} ${msg}\n`;
+  try { fs.writeSync(2, line); } catch {}
+}
+process.on('unhandledRejection', (reason) => {
+  logFatal(`Unhandled Rejection: ${reason?.stack || reason}`);
+});
+process.on('uncaughtException', (err) => {
+  logFatal(`Uncaught Exception: ${err?.stack || err}`);
+});
+
 const { Client, GatewayIntentBits, Events, Partials } = require('discord.js');
 require('dotenv').config();
 
