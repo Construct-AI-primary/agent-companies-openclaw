@@ -10,7 +10,6 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (err) => {
   console.error(`[FATAL] Uncaught Exception: ${err?.stack || err}`);
 });
-
 const { Client, Events, ChannelType } = require('discord.js');
 const https = require('https');
 const http = require('http');
@@ -406,10 +405,33 @@ function setupMessageHandler(client) {
       }
 
       const channelId = message.channel?.id || message.channelId;
-    const channelInfo = CHANNEL_MAP[channelId];
+    let channelInfo = CHANNEL_MAP[channelId];
+
+    // ── SELF-HEAL: if channel not in map but exists in guild, rebuild map on demand ──
     if (!channelInfo) {
-      console.log(`📨 [MSG] No channelInfo for ${channelId} — CHANNEL_MAP has ${Object.keys(CHANNEL_MAP).length} entries`);
-      return;
+      console.log(`📨 [MSG] No channelInfo for ${channelId} — CHANNEL_MAP has ${Object.keys(CHANNEL_MAP).length} entries — attempting live lookup`);
+      const guildChannel = client.channels.cache.get(channelId);
+      if (guildChannel && guildChannel.guild) {
+        const guildName = guildChannel.guild.name;
+        const channelName = guildChannel.name;
+        const chanType = getChannelType(channelName);
+        channelInfo = {
+          server: guildName,
+          name: channelName,
+          agent: null,
+          agentDisplay: null,
+          agentRole: null,
+          purpose: chanType === 'control' ? 'Agent command hub' : '',
+          type: chanType,
+          reply_mode: getReplyMode(chanType)
+        };
+        // Cache it for future messages
+        CHANNEL_MAP[channelId] = channelInfo;
+        console.log(`📨 [MSG] Live-looked up #${channelName} in ${guildName} as type=${chanType} — added to CHANNEL_MAP`);
+      } else {
+        console.log(`📨 [MSG] Cannot find channel ${channelId} in any guild`);
+        return;
+      }
     }
 
     const { type, server, name, purpose, agentDisplay } = channelInfo;
@@ -821,13 +843,21 @@ function setupMessageHandler(client) {
       const content = message.content;
       const isAgentMention = message.mentions.users.has(client.user.id);
       const hasAnyRoleMention = message.mentions.roles.size > 0;
-      const isCommand = content.startsWith('!') || hasAnyRoleMention;
+      const startsWithExclamation = content.startsWith('!');
+      const hasAgentText = content.toLowerCase().includes('@agent');
+      const isCommand = startsWithExclamation || hasAnyRoleMention || hasAgentText;
+
+      console.log(`📨 [CONTROL] content="${content.substring(0, 80)}" isAgentMention=${isAgentMention} hasAnyRoleMention=${hasAnyRoleMention} startsWithExclamation=${startsWithExclamation} hasAgentText=${hasAgentText} isCommand=${isCommand}`);
 
       if (!isAgentMention && !isCommand) return;
 
-      const cleanContent = content.replace(/<@[^>]+>/g, '').trim();
-      const args = cleanContent.split(' ');
-      const command = args[0].toLowerCase();
+      // Strip all mention formats: <@USER_ID>, <@!USER_ID>, <@&ROLE_ID>, and literal @agent
+      let cleanContent = content.replace(/<@!?&?[^>]+>/g, '').trim();
+      cleanContent = cleanContent.replace(/^@agent\b/i, '').trim();
+      const args = cleanContent.split(/\s+/).filter(a => a.length > 0);
+      const command = args.length > 0 ? args[0].toLowerCase() : '';
+
+      console.log(`📨 [CONTROL] cleanContent="${cleanContent}" args=[${args.join(', ')}] command="${command}"`);
 
       // ── !cancel in control channel ──
       if (command === '!cancel') {

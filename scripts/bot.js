@@ -47,32 +47,45 @@ const client = new Client({
 });
 
 // ============================================================
-// BOT READY
+// BOT READY — with retry for guild cache race condition
 // ============================================================
 client.once(Events.ClientReady, (c) => {
   console.log(`✅ OpenClaw Bot logged in as ${c.user.tag}`);
 
-  // Build the dynamic channel map (mutates CHANNEL_MAP in-place)
-  buildChannelMap(c);
+  function tryBuildChannelMap(attempt = 1) {
+    if (c.guilds.cache.size === 0) {
+      if (attempt <= 5) {
+        console.log(`⏳ [RETRY ${attempt}/5] Guild cache empty, waiting 2s...`);
+        setTimeout(() => tryBuildChannelMap(attempt + 1), 2000);
+        return;
+      }
+      console.log(`⚠️ [RETRY] Guild cache still empty after 5 attempts — proceeding anyway`);
+    }
 
-  const agentChannels = Object.values(core.CHANNEL_MAP).filter(ch => ch.agentDisplay !== null).length;
-  const byType = {};
-  Object.values(core.CHANNEL_MAP).forEach(ch => {
-    byType[ch.type] = (byType[ch.type] || 0) + 1;
-  });
+    // Build the dynamic channel map (mutates CHANNEL_MAP in-place)
+    buildChannelMap(c);
 
-  console.log(`📋 ${Object.keys(core.CHANNEL_MAP).length} channels monitored (${agentChannels} with agent assignments)`);
-  console.log(`📊 Channel breakdown: ${Object.entries(byType).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
+    const agentChannels = Object.values(core.CHANNEL_MAP).filter(ch => ch.agentDisplay !== null).length;
+    const byType = {};
+    Object.values(core.CHANNEL_MAP).forEach(ch => {
+      byType[ch.type] = (byType[ch.type] || 0) + 1;
+    });
 
-  const controlServers = Object.values(core.CHANNEL_MAP).filter(ch => ch.type === 'control').map(ch => ch.server);
-  const uniqueControlServers = [...new Set(controlServers)];
-  console.log(`🎮 Control channels (#ai-work) on: ${uniqueControlServers.join(', ') || 'NONE'}`);
+    console.log(`📋 ${Object.keys(core.CHANNEL_MAP).length} channels monitored (${agentChannels} with agent assignments)`);
+    console.log(`📊 Channel breakdown: ${Object.entries(byType).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
 
-  if (CONFIG.openclawApiBase && CONFIG.openclawApiBase !== 'http://localhost:8080') {
-    console.log(`🔗 OpenClaw Gateway: ${CONFIG.openclawApiBase}`);
-  } else {
-    console.log(`🔗 OpenClaw Gateway: NOT CONFIGURED (set OPENCLAW_API_BASE env var to enable sub-agent spawning)`);
+    const controlServers = Object.values(core.CHANNEL_MAP).filter(ch => ch.type === 'control').map(ch => ch.server);
+    const uniqueControlServers = [...new Set(controlServers)];
+    console.log(`🎮 Control channels (#ai-work) on: ${uniqueControlServers.join(', ') || 'NONE'}`);
+
+    if (CONFIG.openclawApiBase && CONFIG.openclawApiBase !== 'http://localhost:8080') {
+      console.log(`🔗 OpenClaw Gateway: ${CONFIG.openclawApiBase}`);
+    } else {
+      console.log(`🔗 OpenClaw Gateway: NOT CONFIGURED (set OPENCLAW_API_BASE env var to enable sub-agent spawning)`);
+    }
   }
+
+  tryBuildChannelMap();
 });
 
 // ============================================================
